@@ -781,11 +781,12 @@ private fun WorktreeListContent(
     onRequestCopyIgnoredFiles: () -> Boolean,
     onMergeIntoBranch: (WorktreeInfo) -> Unit
 ) {
-    val isBusy = state.isCreating || state.isScanning || state.deletingWorktreePath != null
+    val isBusy = state.isCreating || state.isScanning || state.deletingWorktreePath != null || state.pushingBranch != null
     val statusText = when {
         state.isScanning -> "Scanning ignored files..."
         state.isCreating -> "Creating worktree..."
         state.deletingWorktreePath != null -> "Deleting worktree..."
+        state.pushingBranch != null -> "Pushing ${state.pushingBranch}..."
         else -> null
     }
 
@@ -835,7 +836,7 @@ private fun WorktreeListContent(
                 }
                 }
             }
-        }, enabled = !state.isCreating && !state.isScanning) {
+        }, enabled = !state.isCreating && !state.isScanning && state.pushingBranch == null) {
             Text("Create Worktree")
         }
 

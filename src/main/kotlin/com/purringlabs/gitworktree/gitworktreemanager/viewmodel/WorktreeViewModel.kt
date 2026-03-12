@@ -253,15 +253,19 @@ class WorktreeViewModel(
         onError: (Throwable) -> Unit
     ) {
         coroutineScope.launch {
-            state = state.copy(error = null)
-            repository.pullBranch(worktreePath, branchName)
-                .onFailure { onError(it); return@launch }
-            repository.pushBranch(worktreePath, branchName)
-                .onSuccess {
-                    refreshWorktrees()
-                    onSuccess()
-                }
-                .onFailure { onError(it) }
+            state = state.copy(error = null, pushingBranch = branchName)
+            try {
+                repository.pullBranch(worktreePath, branchName)
+                    .onFailure { onError(it); return@launch }
+                repository.pushBranch(worktreePath, branchName)
+                    .onSuccess {
+                        refreshWorktrees()
+                        onSuccess()
+                    }
+                    .onFailure { onError(it) }
+            } finally {
+                state = state.copy(pushingBranch = null)
+            }
         }
     }
 }

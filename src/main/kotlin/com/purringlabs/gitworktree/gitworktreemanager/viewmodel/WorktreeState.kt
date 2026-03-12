@@ -13,6 +13,7 @@ data class WorktreeState(
     val isLoading: Boolean = false,
     val isCreating: Boolean = false,
     val deletingWorktreePath: String? = null,
+    val pushingBranch: String? = null,
     val error: String? = null,
 
     // Ignored files workflow state
