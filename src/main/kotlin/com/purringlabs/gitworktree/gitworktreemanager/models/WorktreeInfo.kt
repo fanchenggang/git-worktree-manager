@@ -44,7 +44,8 @@ data class WorktreeInfo(
                     }
                     line.startsWith("branch ") -> {
                         val fullRef = line.substring("branch ".length)
-                        currentBranch = fullRef.substringAfterLast('/')
+                        // Keep full branch name (e.g. feature/xxx) so "git merge <branch>" works in other worktrees
+                        currentBranch = fullRef.removePrefix("refs/heads/").ifEmpty { null }
                     }
                     line == "bare" -> {
                         isMain = true

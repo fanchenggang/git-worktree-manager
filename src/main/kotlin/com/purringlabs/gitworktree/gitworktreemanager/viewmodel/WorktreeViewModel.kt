@@ -220,4 +220,48 @@ class WorktreeViewModel(
         val result = fileOpsService.copyItems(sourceRoot, destRoot, selectedFiles)
         state = state.copy(copyResult = result)
     }
+
+    /**
+     * Merges [sourceBranch] into the branch checked out in the worktree at [targetWorktreePath].
+     * @param sourceBranch Branch to merge (e.g. the worktree row the user right-clicked)
+     * @param targetWorktreePath Path of the worktree into whose current branch to merge
+     */
+    fun mergeBranchInto(
+        sourceBranch: String,
+        targetWorktreePath: String,
+        onSuccess: () -> Unit,
+        onError: (Throwable) -> Unit
+    ) {
+        coroutineScope.launch {
+            state = state.copy(error = null)
+            repository.mergeBranchInto(sourceBranch, targetWorktreePath)
+                .onSuccess {
+                    refreshWorktrees()
+                    onSuccess()
+                }
+                .onFailure { onError(it) }
+        }
+    }
+
+    /**
+     * Pulls then pushes [branchName] from the worktree at [worktreePath]. Pull runs first to integrate remote changes, then push.
+     */
+    fun pushBranch(
+        worktreePath: String,
+        branchName: String,
+        onSuccess: () -> Unit,
+        onError: (Throwable) -> Unit
+    ) {
+        coroutineScope.launch {
+            state = state.copy(error = null)
+            repository.pullBranch(worktreePath, branchName)
+                .onFailure { onError(it); return@launch }
+            repository.pushBranch(worktreePath, branchName)
+                .onSuccess {
+                    refreshWorktrees()
+                    onSuccess()
+                }
+                .onFailure { onError(it) }
+        }
+    }
 }

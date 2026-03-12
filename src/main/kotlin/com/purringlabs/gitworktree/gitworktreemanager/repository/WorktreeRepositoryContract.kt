@@ -14,4 +14,10 @@ interface WorktreeRepositoryContract {
     ): Result<CreateWorktreeResult>
 
     suspend fun deleteWorktree(worktreePath: String, branchName: String?): Result<DeleteWorktreeResult>
+
+    suspend fun mergeBranchInto(sourceBranch: String, targetWorktreePath: String): Result<Unit>
+
+    suspend fun pullBranch(worktreePath: String, branchName: String): Result<Unit>
+
+    suspend fun pushBranch(worktreePath: String, branchName: String): Result<Unit>
 }

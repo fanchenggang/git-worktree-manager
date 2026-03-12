@@ -20,10 +20,15 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerMoveFilter
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.awt.SwingPanel
+import androidx.compose.ui.input.pointer.isSecondaryPressed
 import com.intellij.ide.impl.ProjectUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.Disposable
@@ -54,6 +59,7 @@ import com.purringlabs.gitworktree.gitworktreemanager.services.UiErrorMapper
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.CopyResultDialog
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.ErrorDetailsDialog
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.IgnoredFilesSelectionDialog
+import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.MergeIntoBranchDialog
 import git4idea.repo.GitRepositoryManager
 import com.purringlabs.gitworktree.gitworktreemanager.viewmodel.WorktreeViewModel
 import git4idea.repo.GitRepository
@@ -538,6 +544,69 @@ private fun WorktreeManagerContent(project: Project) {
                 Messages.getQuestionIcon()
             )
             result == Messages.YES
+        },
+        onMergeIntoBranch = { sourceWorktree ->
+            val sourceBranch = sourceWorktree.branch
+            if (sourceBranch.isNullOrBlank()) return@WorktreeListContent
+            val targetWorktrees = viewModel.state.worktrees
+                .filter { it.path != sourceWorktree.path && it.branch != null }
+                .sortedByDescending { it.branch?.lowercase() == "develop" }
+            if (targetWorktrees.isEmpty()) {
+                Messages.showInfoMessage(
+                    project,
+                    "No other worktree with a branch to merge into.",
+                    "Merge"
+                )
+                return@WorktreeListContent
+            }
+            val dialog = MergeIntoBranchDialog(project, sourceBranch, targetWorktrees)
+            if (dialog.showAndGet()) {
+                val target = dialog.getSelectedTarget()
+                if (target != null) {
+                    val targetBranch = target.branch!!
+                    viewModel.mergeBranchInto(
+                        sourceBranch = sourceBranch,
+                        targetWorktreePath = target.path,
+                        onSuccess = {
+                            ApplicationManager.getApplication().invokeLater {
+                                val choice = Messages.showDialog(
+                                    project,
+                                    "Merged \"$sourceBranch\" into $targetBranch successfully.\n\nPush to remote?",
+                                    "Merge Success",
+                                    arrayOf("Cancel", "Push"),
+                                    1,
+                                    Messages.getQuestionIcon()
+                                )
+                                if (choice == 1) {
+                                    viewModel.pushBranch(
+                                        worktreePath = target.path,
+                                        branchName = targetBranch,
+                                        onSuccess = {
+                                            ApplicationManager.getApplication().invokeLater {
+                                                Messages.showInfoMessage(
+                                                    project,
+                                                    "Pushed $targetBranch to remote.",
+                                                    "Push Success"
+                                                )
+                                            }
+                                        },
+                                        onError = { error ->
+                                            ApplicationManager.getApplication().invokeLater {
+                                                showOperationError(project, error, operation = "PUSH_BRANCH")
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        },
+                        onError = { error ->
+                            ApplicationManager.getApplication().invokeLater {
+                                showOperationError(project, error, operation = "MERGE_BRANCH")
+                            }
+                        }
+                    )
+                }
+            }
         }
     )
 }
@@ -709,7 +778,8 @@ private fun WorktreeListContent(
     onValidateWorktreeName: (name: String) -> String?,
     onValidateBranchName: (branchName: String) -> String?,
     onConfirmDelete: (WorktreeInfo) -> Boolean,
-    onRequestCopyIgnoredFiles: () -> Boolean
+    onRequestCopyIgnoredFiles: () -> Boolean,
+    onMergeIntoBranch: (WorktreeInfo) -> Unit
 ) {
     val isBusy = state.isCreating || state.isScanning || state.deletingWorktreePath != null
     val statusText = when {
@@ -884,7 +954,8 @@ private fun WorktreeListContent(
                             if (onConfirmDelete(worktree)) {
                                 onDeleteWorktree(worktree)
                             }
-                        }
+                        },
+                        onMergeIntoBranch = if (worktree.branch != null) ({ onMergeIntoBranch(worktree) }) else null
                     )
                 }
             }
@@ -903,9 +974,12 @@ private fun WorktreeItem(
     isCurrent: Boolean,
     isDeleting: Boolean,
     onOpen: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onMergeIntoBranch: (() -> Unit)?
 ) {
     var isHovered by remember { mutableStateOf(false) }
+    var showContextMenu by remember { mutableStateOf(false) }
+    var contextMenuOffset by remember { mutableStateOf(Offset.Zero) }
 
     val currentBackground = when {
         !isCurrent -> Color.Transparent
@@ -922,31 +996,49 @@ private fun WorktreeItem(
     // If it's both current + hovered, blend by just preferring hover.
     val rowBackground = if (isHovered) hoverBackground else currentBackground
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .pointerMoveFilter(
-                onEnter = {
-                    isHovered = true
-                    false
-                },
-                onExit = {
-                    isHovered = false
-                    false
+    val rightClickModifier = if (onMergeIntoBranch != null) {
+        Modifier.pointerInput(worktree) {
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent()
+                    if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+                        event.changes.forEach { it.consume() }
+                        contextMenuOffset = event.changes.firstOrNull()?.position ?: Offset.Zero
+                        showContextMenu = true
+                    }
                 }
-            )
-            .pointerHoverIcon(PointerIcon(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)))
-            // Double-click to open (avoid accidental opens while selecting/copying)
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onDoubleTap = { onOpen() }
-                )
             }
-            .background(rowBackground)
-            .padding(8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+        }
+    } else Modifier
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = rightClickModifier
+                .then(
+                    Modifier
+                        .fillMaxWidth()
+                        .pointerMoveFilter(
+                            onEnter = {
+                                isHovered = true
+                                false
+                            },
+                            onExit = {
+                                isHovered = false
+                                false
+                            }
+                        )
+                        .pointerHoverIcon(PointerIcon(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)))
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onDoubleTap = { onOpen() }
+                            )
+                        }
+                        .background(rowBackground)
+                        .padding(8.dp)
+                ),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
         Column(
             modifier = Modifier.weight(1f)
         ) {
@@ -988,7 +1080,7 @@ private fun WorktreeItem(
             // and fade it in/out via alpha.
             val hintAlpha = if (isHovered) 1f else 0f
             Text(
-                text = "Tip: double-click row to open", 
+                text = "Tip: double-click row to open",
                 fontWeight = FontWeight.Light,
                 modifier = Modifier
                     .padding(top = 2.dp)
@@ -1047,6 +1139,36 @@ private fun WorktreeItem(
                                 text = tooltipText,
                                 fontWeight = FontWeight.Light
                             )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+        if (showContextMenu && onMergeIntoBranch != null) {
+            Popup(
+                alignment = Alignment.TopStart,
+                offset = IntOffset(contextMenuOffset.x.toInt(), contextMenuOffset.y.toInt()),
+                onDismissRequest = { showContextMenu = false }
+            ) {
+                Box(
+                    modifier = Modifier
+                        .background(
+                            if (isSystemInDarkTheme()) Color(0xEE2B2B2B) else Color(0xEEFFFFFF),
+                            RoundedCornerShape(4.dp)
+                        )
+                        .border(1.dp, if (isSystemInDarkTheme()) Color(0x55FFFFFF) else Color(0x22000000), RoundedCornerShape(4.dp))
+                        .padding(4.dp)
+                ) {
+                    Column {
+                        OutlinedButton(
+                            onClick = {
+                                showContextMenu = false
+                                onMergeIntoBranch()
+                            }
+                        ) {
+                            Text("Merge into other branch...")
                         }
                     }
                 }

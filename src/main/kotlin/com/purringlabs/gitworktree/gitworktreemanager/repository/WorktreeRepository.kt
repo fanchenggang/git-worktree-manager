@@ -138,5 +138,32 @@ class WorktreeRepository(private val project: Project) : WorktreeRepositoryContr
 
         result
     }
+
+    override suspend fun mergeBranchInto(sourceBranch: String, targetWorktreePath: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val repository = currentRepository
+        if (repository == null) {
+            Result.failure(NoRepositoryException("No Git repository found in project"))
+        } else {
+            service.mergeBranchInto(repository, sourceBranch, targetWorktreePath)
+        }
+    }
+
+    override suspend fun pullBranch(worktreePath: String, branchName: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val repository = currentRepository
+        if (repository == null) {
+            Result.failure(NoRepositoryException("No Git repository found in project"))
+        } else {
+            service.pullBranch(repository, worktreePath, branchName)
+        }
+    }
+
+    override suspend fun pushBranch(worktreePath: String, branchName: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val repository = currentRepository
+        if (repository == null) {
+            Result.failure(NoRepositoryException("No Git repository found in project"))
+        } else {
+            service.pushBranch(repository, worktreePath, branchName)
+        }
+    }
 }
 
