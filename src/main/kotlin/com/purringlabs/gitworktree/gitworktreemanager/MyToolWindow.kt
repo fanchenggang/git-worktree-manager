@@ -15,7 +15,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
@@ -26,6 +25,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.input.pointer.isSecondaryPressed
@@ -567,6 +567,7 @@ private fun WorktreeManagerContent(project: Project) {
                     viewModel.mergeBranchInto(
                         sourceBranch = sourceBranch,
                         targetWorktreePath = target.path,
+                        targetBranch = targetBranch,
                         onSuccess = {
                             ApplicationManager.getApplication().invokeLater {
                                 val choice = Messages.showDialog(
@@ -630,6 +631,8 @@ internal fun registerGitRepoAutoRefresh(
 
 @VisibleForTesting
 internal fun canonicalizePath(path: String): String = FileUtil.toCanonicalPath(path)
+
+private fun worktreeFolderName(path: String): String = File(path).name
 
 @VisibleForTesting
 internal fun sanitizeBranchName(input: String): String {
@@ -793,13 +796,13 @@ private fun WorktreeListContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         if (isBusy) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 SwingPanel(
                     modifier = Modifier
@@ -845,7 +848,7 @@ private fun WorktreeListContent(
             Text(
                 text = error,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(8.dp)
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
             )
         }
 
@@ -869,7 +872,7 @@ private fun WorktreeListContent(
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             BasicTextField(
                 value = state.searchQuery,
@@ -878,9 +881,9 @@ private fun WorktreeListContent(
                 textStyle = TextStyle(color = if (isSystemInDarkTheme()) Color.White else Color.Black),
                 modifier = Modifier
                     .weight(1f)
-                    .border(1.dp, searchBorder, RoundedCornerShape(8.dp))
-                    .background(searchBg, RoundedCornerShape(8.dp))
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    .border(1.dp, searchBorder, RoundedCornerShape(6.dp))
+                    .background(searchBg, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
                 decorationBox = { innerTextField ->
                     Box {
                         if (state.searchQuery.isBlank()) {
@@ -938,7 +941,7 @@ private fun WorktreeListContent(
             }
         } else {
             LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 items(sortedWorktrees) { worktree ->
                     val isCurrent = isCurrentWorktree(
@@ -996,6 +999,13 @@ private fun WorktreeItem(
 
     // If it's both current + hovered, blend by just preferring hover.
     val rowBackground = if (isHovered) hoverBackground else currentBackground
+    val secondaryColor = if (isSystemInDarkTheme()) Color(0xFFB0B0B0) else Color(0xFF5C5C5C)
+    val branchLine = buildString {
+        append(worktree.branch ?: "detached HEAD")
+        append(" · ")
+        append(worktree.commit.take(8))
+    }
+    val pathDisplay = worktree.path.replace('\\', '/')
 
     val rightClickModifier = if (onMergeIntoBranch != null) {
         Modifier.pointerInput(worktree) {
@@ -1035,73 +1045,56 @@ private fun WorktreeItem(
                             )
                         }
                         .background(rowBackground)
-                        .padding(8.dp)
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
                 ),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-        Column(
-            modifier = Modifier.weight(1f)
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.weight(0.26f).fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text(
-                    text = worktree.branch ?: "detached HEAD",
-                    fontWeight = FontWeight.Bold
-                )
-
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(
+                    modifier = Modifier.width(14.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     if (isCurrent) {
-                        Text(text = "(current)", fontWeight = FontWeight.Light)
-                    }
-                    if (worktree.isMain) {
-                        Text(text = "(main)", fontWeight = FontWeight.Light)
+                        Text(text = "✓", fontWeight = FontWeight.Medium)
                     }
                 }
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = worktree.path,
-                fontWeight = FontWeight.Light
-            )
-            if (worktree.isMain) {
                 Text(
-                    text = "Main working tree (repo root)",
-                    fontWeight = FontWeight.Light
+                    text = worktreeFolderName(worktree.path),
+                    fontWeight = if (worktree.isMain) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).fillMaxWidth()
                 )
             }
+
             Text(
-                text = "Commit: ${worktree.commit.take(8)}",
-                fontWeight = FontWeight.Light
+                text = branchLine,
+                color = secondaryColor,
+                fontWeight = FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(0.30f).fillMaxWidth()
             )
 
-            // Avoid layout jitter in the list: always reserve space for the hint line,
-            // and fade it in/out via alpha.
-            val hintAlpha = if (isHovered) 1f else 0f
             Text(
-                text = "Tip: double-click row to open",
-                fontWeight = FontWeight.Light,
-                modifier = Modifier
-                    .padding(top = 2.dp)
-                    .graphicsLayer(alpha = hintAlpha)
+                text = pathDisplay,
+                color = secondaryColor,
+                fontWeight = FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(0.36f).fillMaxWidth()
             )
-        }
 
-        Column(
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // Delete button
-            // - Non-main: enabled (unless deleting)
-            // - Main: shown but disabled, with tooltip explaining why
             val deleteEnabled = isDeleteEnabled(isMain = worktree.isMain, isCurrent = isCurrent, isDeleting = isDeleting)
             var isDeleteHovered by remember { mutableStateOf(false) }
 
             Box(
                 modifier = Modifier
-                    // Track hover on the container so we still get hover events when the button is disabled.
                     .pointerMoveFilter(
                         onEnter = {
                             isDeleteHovered = true
@@ -1145,7 +1138,6 @@ private fun WorktreeItem(
                 }
             }
         }
-    }
 
         if (showContextMenu && onMergeIntoBranch != null) {
             Popup(
