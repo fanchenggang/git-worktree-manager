@@ -374,6 +374,38 @@ class GitWorktreeService(private val project: Project) {
         }
     }
 
+    /**
+     * Prunes stale worktrees.
+     */
+    fun pruneWorktrees(repository: GitRepository): Result<Unit> {
+        val git = Git.getInstance()
+        val handler = GitLineHandler(project, repository.root, GitCommand.WORKTREE)
+        handler.addParameters("prune")
+        
+        return try {
+            val result = git.runCommand(handler)
+            if (result.success()) {
+                Result.success(Unit)
+            } else {
+                Result.failure(
+                    WorktreeOperationException(
+                        message = "Failed to prune worktrees",
+                        gitCommand = handler.printableCommandLine(),
+                        gitExitCode = result.exitCode,
+                        gitErrorOutput = result.errorOutputAsJoinedString
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Result.failure(
+                WorktreeOperationException(
+                    message = "Unexpected error during prune: ${e.message}",
+                    cause = e
+                )
+            )
+        }
+    }
+
     @VisibleForTesting
     internal fun isMainWorktreePath(worktreePath: String): Boolean {
         // Resolve weirdness like /a/b/./c

@@ -60,6 +60,7 @@ import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.CopyResultDialo
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.ErrorDetailsDialog
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.IgnoredFilesSelectionDialog
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.MergeIntoBranchDialog
+import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.CreateWorktreeDialog
 import git4idea.repo.GitRepositoryManager
 import com.purringlabs.gitworktree.gitworktreemanager.viewmodel.WorktreeViewModel
 import git4idea.repo.GitRepository
@@ -153,6 +154,258 @@ private fun WorktreeManagerContent(project: Project) {
         }
     }
 
+    val onCreateWorktree: (String, String) -> Unit = { name, branch ->
+        viewModel.createWorktree(
+            name = name,
+            branchName = branch,
+            onSuccess = { createResult ->
+                ApplicationManager.getApplication().invokeLater {
+                    // Open the worktree in a new window
+                    ProjectUtil.openOrImport(File(createResult.path).toPath(), project, true)
+                    Messages.showInfoMessage(
+                        project,
+                        if (createResult.created) {
+                            "Worktree created and opened in new window!"
+                        } else {
+                            "Worktree already exists — opened existing worktree in new window."
+                        },
+                        "Success"
+                    )
+                }
+            },
+            onError = { error ->
+                ApplicationManager.getApplication().invokeLater {
+                    showOperationError(project, error, operation = "CREATE_WORKTREE")
+                }
+            }
+        )
+    }
+
+    val onCreateWorktreeWithIgnoredFiles: (String, String) -> Unit = { name, branch ->
+        uiScope.launch {
+            // Step 1: Scan for ignored files
+            viewModel.scanIgnoredFiles()
+
+            // Step 2: Check for scan errors
+            if (viewModel.state.scanError != null) {
+                withContext(Dispatchers.Main) {
+                    Messages.showErrorDialog(
+                        project,
+                        "Failed to scan ignored files: ${viewModel.state.scanError}",
+                        "Error"
+                    )
+                }
+                return@launch
+            }
+
+            // Step 3: Show selection dialog
+            val ignoredFiles = viewModel.state.ignoredFiles
+            if (ignoredFiles.isEmpty()) {
+                withContext(Dispatchers.Main) {
+                    Messages.showInfoMessage(
+                        project,
+                        "No ignored files found.",
+                        "No Ignored Files"
+                    )
+                }
+                // Still create the worktree without copying files
+                onCreateWorktree(name, branch)
+                return@launch
+            }
+
+            // Show dialog on main thread
+            val selectedFiles = withContext(Dispatchers.Main) {
+                val dialog = IgnoredFilesSelectionDialog(project, ignoredFiles)
+                if (dialog.showAndGet()) {
+                    dialog.getSelectedFiles()
+                } else {
+                    null // User cancelled
+                }
+            }
+
+            // Step 4: Create worktree with or without selected files
+            if (selectedFiles != null) {
+                // User selected files - create worktree with copying
+                viewModel.createWorktreeWithIgnoredFiles(
+                    worktreeName = name,
+                    branchName = branch,
+                    selectedFiles = selectedFiles,
+                    onSuccess = { createResult ->
+                        ApplicationManager.getApplication().invokeLater {
+                            // Open the worktree in a new window
+                            ProjectUtil.openOrImport(File(createResult.path).toPath(), project, true)
+
+                            // Show copy results if available
+                            val copyResult = viewModel.state.copyResult
+                            if (copyResult != null && copyResult.successCount > 0) {
+                                val resultDialog = CopyResultDialog(project, copyResult)
+                                resultDialog.show()
+                            }
+
+                            Messages.showInfoMessage(
+                                project,
+                                if (createResult.created) {
+                                    "Worktree created and opened in new window!"
+                                } else {
+                                    "Worktree already exists — opened existing worktree in new window."
+                                },
+                                "Success"
+                            )
+                        }
+                    },
+                    onError = { error ->
+                        ApplicationManager.getApplication().invokeLater {
+                            showOperationError(project, error, operation = "CREATE_WORKTREE")
+                        }
+                    }
+                )
+            } else {
+                // User cancelled selection - create worktree without copying files
+                onCreateWorktree(name, branch)
+            }
+        }
+    }
+
+    val onValidateWorktreeName: (String) -> String? = { initialName ->
+        val repository = findValidRepository(project)
+        if (repository != null) {
+            val gitWorktreeService = GitWorktreeService.getInstance(project)
+            var name = initialName
+
+            var result: String? = null
+            var keepValidating = true
+            while (keepValidating) {
+                val path = gitWorktreeService.getWorktreePath(repository, name)
+                val existingDir = File(path)
+                if (!existingDir.exists()) {
+                    result = name
+                    keepValidating = false
+                } else {
+                    val existingWorktree = try {
+                        listWorktreesInBackground(project, repository)
+                            ?.firstOrNull { it.path == path }
+                    } catch (_: ProcessCanceledException) {
+                        keepValidating = false
+                        null
+                    }
+
+                    if (keepValidating) {
+                        val choice = Messages.showDialog(
+                            project,
+                            "The worktree folder already exists:\n$path\n\nWhat would you like to do?",
+                            "Worktree Folder Already Exists",
+                            arrayOf("Open existing", "Use another name…", "Cancel"),
+                            0,
+                            Messages.getWarningIcon()
+                        )
+
+                        when (choice) {
+                            0 -> {
+                                if (existingWorktree != null) {
+                                    openOrFocusWorktree(project, existingWorktree.path, TelemetryServiceImpl.getInstance())
+                                } else {
+                                    Messages.showErrorDialog(
+                                        project,
+                                        "Folder exists but is not a registered git worktree. Please choose another name or remove the folder manually.\n\n$path",
+                                        "Cannot Open Existing Folder"
+                                    )
+                                }
+                                keepValidating = false
+                            }
+                            1 -> {
+                                val newName = Messages.showInputDialog(
+                                    project,
+                                    "Enter a different worktree name:",
+                                    "Choose Another Name",
+                                    Messages.getQuestionIcon(),
+                                    "${name}-2",
+                                    null
+                                )
+
+                                if (newName.isNullOrBlank()) {
+                                    keepValidating = false
+                                } else {
+                                    name = newName
+                                }
+                            }
+                            else -> keepValidating = false
+                        }
+                    }
+                }
+            }
+            result
+        } else {
+            initialName
+        }
+    }
+
+    val onValidateBranchName: (String) -> String? = { initialBranch ->
+        val repository = findValidRepository(project)
+        if (repository != null) {
+            var branchName = sanitizeBranchName(initialBranch)
+
+            fun branchAlreadyExists(name: String): Boolean {
+                return repository.branches.localBranches.any { it.name == name }
+            }
+
+            var result: String? = null
+            var keepValidating = true
+            while (keepValidating) {
+                if (branchName.isBlank()) {
+                    val newBranch = Messages.showInputDialog(
+                        project,
+                        "Branch name is empty after sanitization. Please enter a valid name.",
+                        "Invalid Branch Name",
+                        Messages.getWarningIcon(),
+                        null,
+                        null
+                    )
+
+                    if (newBranch.isNullOrBlank()) {
+                        keepValidating = false
+                    } else {
+                        branchName = sanitizeBranchName(newBranch)
+                    }
+                } else if (!branchAlreadyExists(branchName)) {
+                    result = branchName
+                    keepValidating = false
+                } else {
+                    val choice = Messages.showDialog(
+                        project,
+                        "Branch '$branchName' already exists. Please choose another name.",
+                        "Branch Already Exists",
+                        arrayOf("Use another name…", "Cancel"),
+                        0,
+                        Messages.getWarningIcon()
+                    )
+
+                    when (choice) {
+                        0 -> {
+                            val newBranch = Messages.showInputDialog(
+                                project,
+                                "Enter a new branch name:",
+                                "Choose Another Branch Name",
+                                Messages.getQuestionIcon(),
+                                "${branchName}-2",
+                                null
+                            )
+
+                            if (newBranch.isNullOrBlank()) {
+                                keepValidating = false
+                            } else {
+                                branchName = sanitizeBranchName(newBranch)
+                            }
+                        }
+                        else -> keepValidating = false
+                    }
+                }
+            }
+            result
+        } else {
+            initialBranch
+        }
+    }
+
     val currentProjectBasePath = remember(project) { project.basePath }
 
     WorktreeListContent(
@@ -171,48 +424,37 @@ private fun WorktreeManagerContent(project: Project) {
             }
             viewModel.refreshWorktrees()
         },
-        onOpenWorktree = { worktree ->
-            openOrFocusWorktree(project, worktree.path, TelemetryServiceImpl.getInstance())
-        },
-        onCreateWorktree = { name, branch ->
+        onPrune = {
             val repository = findValidRepository(project)
             if (repository == null) {
                 NoRepositoryUiHelper.showNoRepositoryDialog(
                     project = project,
-                    attemptedOperation = "CREATE_WORKTREE",
+                    attemptedOperation = "PRUNE_WORKTREES",
                     telemetry = TelemetryServiceImpl.getInstance()
                 )
                 return@WorktreeListContent
             }
-
-            // Folder-exists and branch-exists prompting are handled upfront (right after entering name/branch).
-
-            viewModel.createWorktree(
-                name = name,
-                branchName = branch,
-                onSuccess = { createResult ->
+            viewModel.pruneWorktrees(
+                onSuccess = {
                     ApplicationManager.getApplication().invokeLater {
-                        // Open the worktree in a new window
-                        ProjectUtil.openOrImport(File(createResult.path).toPath(), project, true)
                         Messages.showInfoMessage(
                             project,
-                            if (createResult.created) {
-                                "Worktree created and opened in new window!"
-                            } else {
-                                "Worktree already exists — opened existing worktree in new window."
-                            },
+                            "Stale worktrees pruned successfully!",
                             "Success"
                         )
                     }
                 },
                 onError = { error ->
                     ApplicationManager.getApplication().invokeLater {
-                        showOperationError(project, error, operation = "CREATE_WORKTREE")
+                        showOperationError(project, error, operation = "PRUNE_WORKTREES")
                     }
                 }
             )
         },
-        onCreateWorktreeWithIgnoredFiles = { name, branch ->
+        onOpenWorktree = { worktree ->
+            openOrFocusWorktree(project, worktree.path, TelemetryServiceImpl.getInstance())
+        },
+        onCreateWorktreeRequest = {
             val repository = findValidRepository(project)
             if (repository == null) {
                 NoRepositoryUiHelper.showNoRepositoryDialog(
@@ -223,130 +465,24 @@ private fun WorktreeManagerContent(project: Project) {
                 return@WorktreeListContent
             }
 
-            uiScope.launch {
-                // Step 1: Scan for ignored files
-                viewModel.scanIgnoredFiles()
+            val dialog = CreateWorktreeDialog(project)
+            if (dialog.showAndGet()) {
+                val rawName = dialog.getWorktreeName()
+                val rawBranchName = dialog.getBranchName()
+                val copyIgnoredFiles = dialog.shouldCopyIgnoredFiles()
 
-                // Step 2: Check for scan errors
-                if (viewModel.state.scanError != null) {
-                    withContext(Dispatchers.Main) {
-                        Messages.showErrorDialog(
-                            project,
-                            "Failed to scan ignored files: ${viewModel.state.scanError}",
-                            "Error"
-                        )
-                    }
-                    return@launch
-                }
-
-                // Step 3: Show selection dialog
-                val ignoredFiles = viewModel.state.ignoredFiles
-                if (ignoredFiles.isEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        Messages.showInfoMessage(
-                            project,
-                            "No ignored files found.",
-                            "No Ignored Files"
-                        )
-                    }
-                    // Still create the worktree without copying files
-                    viewModel.createWorktree(
-                        name = name,
-                        branchName = branch,
-                        onSuccess = { createResult ->
-                            ApplicationManager.getApplication().invokeLater {
-                                ProjectUtil.openOrImport(File(createResult.path).toPath(), project, true)
-                                Messages.showInfoMessage(
-                                    project,
-                                    if (createResult.created) {
-                                        "Worktree created and opened in new window!"
-                                    } else {
-                                        "Worktree already exists — opened existing worktree in new window."
-                                    },
-                                    "Success"
-                                )
-                            }
-                        },
-                        onError = { error ->
-                            ApplicationManager.getApplication().invokeLater {
-                                showOperationError(project, error, operation = "CREATE_WORKTREE")
+                if (rawName.isNotBlank() && rawBranchName.isNotBlank()) {
+                    val worktreeName = onValidateWorktreeName(rawName)
+                    if (!worktreeName.isNullOrBlank()) {
+                        val branchName = onValidateBranchName(rawBranchName)
+                        if (!branchName.isNullOrBlank()) {
+                            if (copyIgnoredFiles) {
+                                onCreateWorktreeWithIgnoredFiles(worktreeName, branchName)
+                            } else {
+                                onCreateWorktree(worktreeName, branchName)
                             }
                         }
-                    )
-                    return@launch
-                }
-
-                // Show dialog on main thread
-                val selectedFiles = withContext(Dispatchers.Main) {
-                    val dialog = IgnoredFilesSelectionDialog(project, ignoredFiles)
-                    if (dialog.showAndGet()) {
-                        dialog.getSelectedFiles()
-                    } else {
-                        null // User cancelled
                     }
-                }
-
-                // Step 4: Create worktree with or without selected files
-                if (selectedFiles != null) {
-                    // User selected files - create worktree with copying
-                    viewModel.createWorktreeWithIgnoredFiles(
-                        worktreeName = name,
-                        branchName = branch,
-                        selectedFiles = selectedFiles,
-                        onSuccess = { createResult ->
-                            ApplicationManager.getApplication().invokeLater {
-                                // Open the worktree in a new window
-                                ProjectUtil.openOrImport(File(createResult.path).toPath(), project, true)
-
-                                // Show copy results if available
-                                val copyResult = viewModel.state.copyResult
-                                if (copyResult != null && copyResult.successCount > 0) {
-                                    val resultDialog = CopyResultDialog(project, copyResult)
-                                    resultDialog.show()
-                                }
-
-                                Messages.showInfoMessage(
-                                    project,
-                                    if (createResult.created) {
-                                        "Worktree created and opened in new window!"
-                                    } else {
-                                        "Worktree already exists — opened existing worktree in new window."
-                                    },
-                                    "Success"
-                                )
-                            }
-                        },
-                        onError = { error ->
-                            ApplicationManager.getApplication().invokeLater {
-                                showOperationError(project, error, operation = "CREATE_WORKTREE")
-                            }
-                        }
-                    )
-                } else {
-                    // User cancelled selection - create worktree without copying files
-                    viewModel.createWorktree(
-                        name = name,
-                        branchName = branch,
-                        onSuccess = { createResult ->
-                            ApplicationManager.getApplication().invokeLater {
-                                ProjectUtil.openOrImport(File(createResult.path).toPath(), project, true)
-                                Messages.showInfoMessage(
-                                    project,
-                                    if (createResult.created) {
-                                        "Worktree created and opened in new window!"
-                                    } else {
-                                        "Worktree already exists — opened existing worktree in new window."
-                                    },
-                                    "Success"
-                                )
-                            }
-                        },
-                        onError = { error ->
-                            ApplicationManager.getApplication().invokeLater {
-                                showOperationError(project, error, operation = "CREATE_WORKTREE")
-                            }
-                        }
-                    )
                 }
             }
         },
@@ -380,168 +516,12 @@ private fun WorktreeManagerContent(project: Project) {
                 }
             )
         },
-        onRequestWorktreeName = {
-            Messages.showInputDialog(
-                project,
-                "Enter worktree name:",
-                "Create Worktree",
-                null
-            )
-        },
-        onRequestBranchName = { defaultName ->
-            Messages.showInputDialog(
-                project,
-                "Enter branch name:",
-                "Create Worktree",
-                null,
-                defaultName,
-                null
-            )
-        },
-        onValidateWorktreeName = { initialName ->
-            val repository = findValidRepository(project)
-                ?: return@WorktreeListContent initialName
-
-            val gitWorktreeService = GitWorktreeService.getInstance(project)
-            var name = initialName
-
-            while (true) {
-                val path = gitWorktreeService.getWorktreePath(repository, name)
-                val existingDir = File(path)
-                if (!existingDir.exists()) return@WorktreeListContent name
-
-                // IMPORTANT: do NOT run Git commands on the EDT.
-                // Git authentication may need the IDE built-in server; waiting for it on the EDT triggers an assertion.
-                val existingWorktree = try {
-                    listWorktreesInBackground(project, repository)
-                        ?.firstOrNull { it.path == path }
-                } catch (_: ProcessCanceledException) {
-                    // User cancelled validation; treat as cancel.
-                    return@WorktreeListContent null
-                }
-
-                val choice = Messages.showDialog(
-                    project,
-                    "The worktree folder already exists:\n$path\n\nWhat would you like to do?",
-                    "Worktree Folder Already Exists",
-                    arrayOf("Open existing", "Use another name…", "Cancel"),
-                    0,
-                    Messages.getWarningIcon()
-                )
-
-                when (choice) {
-                    0 -> {
-                        if (existingWorktree != null) {
-                            openOrFocusWorktree(project, existingWorktree.path, TelemetryServiceImpl.getInstance())
-                        } else {
-                            Messages.showErrorDialog(
-                                project,
-                                "Folder exists but is not a registered git worktree. Please choose another name or remove the folder manually.\n\n$path",
-                                "Cannot Open Existing Folder"
-                            )
-                        }
-                        return@WorktreeListContent null
-                    }
-
-                    1 -> {
-                        val newName = Messages.showInputDialog(
-                            project,
-                            "Enter a different worktree name:",
-                            "Choose Another Name",
-                            Messages.getQuestionIcon(),
-                            "${name}-2",
-                            null
-                        )
-
-                        if (newName.isNullOrBlank()) return@WorktreeListContent null
-                        name = newName
-                    }
-
-                    else -> return@WorktreeListContent null
-                }
-            }
-
-            return@WorktreeListContent null
-        },
-        onValidateBranchName = { initialBranch ->
-            val repository = findValidRepository(project)
-                ?: return@WorktreeListContent initialBranch
-
-            // IMPORTANT: do NOT run Git commands on the EDT.
-            // Checking local branch existence should be done via repository state (not `git branch`),
-            // otherwise Git may trigger auth helpers that assert when invoked from the UI thread.
-            var branchName = sanitizeBranchName(initialBranch)
-
-            fun branchAlreadyExists(name: String): Boolean {
-                return repository.branches.localBranches.any { it.name == name }
-            }
-
-            while (true) {
-                if (branchName.isBlank()) {
-                    val newBranch = Messages.showInputDialog(
-                        project,
-                        "Branch name is empty after sanitization. Please enter a valid name.",
-                        "Invalid Branch Name",
-                        Messages.getWarningIcon(),
-                        null,
-                        null
-                    )
-
-                    if (newBranch.isNullOrBlank()) return@WorktreeListContent null
-                    branchName = sanitizeBranchName(newBranch)
-                    continue
-                }
-
-                if (!branchAlreadyExists(branchName)) {
-                    return@WorktreeListContent branchName
-                }
-
-                val choice = Messages.showDialog(
-                    project,
-                    "Branch '$branchName' already exists. Please choose another name.",
-                    "Branch Already Exists",
-                    arrayOf("Use another name…", "Cancel"),
-                    0,
-                    Messages.getWarningIcon()
-                )
-
-                when (choice) {
-                    0 -> {
-                        val newBranch = Messages.showInputDialog(
-                            project,
-                            "Enter a new branch name:",
-                            "Choose Another Branch Name",
-                            Messages.getQuestionIcon(),
-                            "${branchName}-2",
-                            null
-                        )
-
-                        if (newBranch.isNullOrBlank()) return@WorktreeListContent null
-                        branchName = sanitizeBranchName(newBranch)
-                    }
-
-                    else -> return@WorktreeListContent null
-                }
-            }
-
-            // Unreachable in practice, but keeps the lambda well-typed.
-            return@WorktreeListContent null
-        },
         onConfirmDelete = { worktree ->
             val result = Messages.showYesNoDialog(
                 project,
                 "Are you sure you want to delete this worktree?\n${worktree.path}",
                 "Delete Worktree",
                 Messages.getWarningIcon()
-            )
-            result == Messages.YES
-        },
-        onRequestCopyIgnoredFiles = {
-            val result = Messages.showYesNoDialog(
-                project,
-                "Do you want to copy ignored files to the new worktree?",
-                "Copy Ignored Files",
-                Messages.getQuestionIcon()
             )
             result == Messages.YES
         },
@@ -607,6 +587,50 @@ private fun WorktreeManagerContent(project: Project) {
                         }
                     )
                 }
+            }
+        },
+        onPullFromRemote = { worktree ->
+            val branch = worktree.branch
+            if (branch != null) {
+                viewModel.pullBranch(
+                    worktreePath = worktree.path,
+                    branchName = branch,
+                    onSuccess = {
+                        ApplicationManager.getApplication().invokeLater {
+                            Messages.showInfoMessage(
+                                project,
+                                "Pulled $branch from remote successfully!",
+                                "Success"
+                            )
+                        }
+                    },
+                    onError = { error ->
+                        ApplicationManager.getApplication().invokeLater {
+                            showOperationError(project, error, operation = "PULL_BRANCH")
+                        }
+                    }
+                )
+            }
+        },
+        onOpenInTerminal = { worktree ->
+            ApplicationManager.getApplication().invokeLater {
+                try {
+                    val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(worktree.path)
+                    if (virtualFile != null) {
+                        org.jetbrains.plugins.terminal.TerminalView.getInstance(project).openTerminalIn(virtualFile)
+                    } else {
+                        Messages.showErrorDialog(project, "Could not find worktree directory.", "Error")
+                    }
+                } catch (e: NoClassDefFoundError) {
+                    Messages.showErrorDialog(project, "Terminal plugin is not available.", "Error")
+                } catch (e: Exception) {
+                    Messages.showErrorDialog(project, "Failed to open terminal: ${e.message}", "Error")
+                }
+            }
+        },
+        onRevealInExplorer = { worktree ->
+            ApplicationManager.getApplication().invokeLater {
+                com.intellij.ide.actions.RevealFileAction.openDirectory(File(worktree.path))
             }
         }
     )
@@ -773,23 +797,23 @@ private fun WorktreeListContent(
     onSearchQueryChange: (String) -> Unit,
     onRefresh: () -> Unit,
     onOpenWorktree: (WorktreeInfo) -> Unit,
-    onCreateWorktree: (name: String, branch: String) -> Unit,
-    onCreateWorktreeWithIgnoredFiles: (name: String, branch: String) -> Unit,
     onDeleteWorktree: (WorktreeInfo) -> Unit,
-    onRequestWorktreeName: () -> String?,
-    onRequestBranchName: (defaultName: String) -> String?,
-    onValidateWorktreeName: (name: String) -> String?,
-    onValidateBranchName: (branchName: String) -> String?,
+    onCreateWorktreeRequest: () -> Unit,
     onConfirmDelete: (WorktreeInfo) -> Boolean,
-    onRequestCopyIgnoredFiles: () -> Boolean,
-    onMergeIntoBranch: (WorktreeInfo) -> Unit
+    onMergeIntoBranch: (WorktreeInfo) -> Unit,
+    onPrune: () -> Unit,
+    onPullFromRemote: (WorktreeInfo) -> Unit,
+    onOpenInTerminal: (WorktreeInfo) -> Unit,
+    onRevealInExplorer: (WorktreeInfo) -> Unit
 ) {
-    val isBusy = state.isCreating || state.isScanning || state.deletingWorktreePath != null || state.pushingBranch != null
+    val isBusy = state.isCreating || state.isScanning || state.isPruning || state.deletingWorktreePath != null || state.pushingBranch != null || state.pullingBranch != null
     val statusText = when {
         state.isScanning -> "Scanning ignored files..."
         state.isCreating -> "Creating worktree..."
+        state.isPruning -> "Pruning worktrees..."
         state.deletingWorktreePath != null -> "Deleting worktree..."
         state.pushingBranch != null -> "Pushing ${state.pushingBranch}..."
+        state.pullingBranch != null -> "Pulling ${state.pullingBranch}..."
         else -> null
     }
 
@@ -821,24 +845,7 @@ private fun WorktreeListContent(
 
         // Create button at the top
         OutlinedButton(onClick = {
-            val rawName = onRequestWorktreeName()
-            if (!rawName.isNullOrBlank()) {
-                val worktreeName = onValidateWorktreeName(rawName)
-                if (!worktreeName.isNullOrBlank()) {
-                    val rawBranchName = onRequestBranchName(worktreeName)
-                if (!rawBranchName.isNullOrBlank()) {
-                    val branchName = onValidateBranchName(rawBranchName)
-                    if (!branchName.isNullOrBlank()) {
-                        val copyIgnoredFiles = onRequestCopyIgnoredFiles()
-                        if (copyIgnoredFiles) {
-                            onCreateWorktreeWithIgnoredFiles(worktreeName, branchName)
-                        } else {
-                            onCreateWorktree(worktreeName, branchName)
-                        }
-                    }
-                }
-                }
-            }
+            onCreateWorktreeRequest()
         }, enabled = !state.isCreating && !state.isScanning && state.pushingBranch == null) {
             Text("Create Worktree")
         }
@@ -907,6 +914,10 @@ private fun WorktreeListContent(
             OutlinedButton(onClick = onRefresh, enabled = !isBusy) {
                 Text("Refresh")
             }
+
+            OutlinedButton(onClick = onPrune, enabled = !isBusy) {
+                Text("Prune")
+            }
         }
 
         // Worktree list
@@ -959,7 +970,10 @@ private fun WorktreeListContent(
                                 onDeleteWorktree(worktree)
                             }
                         },
-                        onMergeIntoBranch = if (worktree.branch != null) ({ onMergeIntoBranch(worktree) }) else null
+                        onMergeIntoBranch = if (worktree.branch != null) ({ onMergeIntoBranch(worktree) }) else null,
+                        onPullFromRemote = if (worktree.branch != null) ({ onPullFromRemote(worktree) }) else null,
+                        onOpenInTerminal = { onOpenInTerminal(worktree) },
+                        onRevealInExplorer = { onRevealInExplorer(worktree) }
                     )
                 }
             }
@@ -979,7 +993,10 @@ private fun WorktreeItem(
     isDeleting: Boolean,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
-    onMergeIntoBranch: (() -> Unit)?
+    onMergeIntoBranch: (() -> Unit)?,
+    onPullFromRemote: (() -> Unit)?,
+    onOpenInTerminal: () -> Unit,
+    onRevealInExplorer: () -> Unit
 ) {
     var isHovered by remember { mutableStateOf(false) }
     var showContextMenu by remember { mutableStateOf(false) }
@@ -1007,20 +1024,18 @@ private fun WorktreeItem(
     }
     val pathDisplay = worktree.path.replace('\\', '/')
 
-    val rightClickModifier = if (onMergeIntoBranch != null) {
-        Modifier.pointerInput(worktree) {
-            awaitPointerEventScope {
-                while (true) {
-                    val event = awaitPointerEvent()
-                    if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
-                        event.changes.forEach { it.consume() }
-                        contextMenuOffset = event.changes.firstOrNull()?.position ?: Offset.Zero
-                        showContextMenu = true
-                    }
+    val rightClickModifier = Modifier.pointerInput(worktree) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent()
+                if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+                    event.changes.forEach { it.consume() }
+                    contextMenuOffset = event.changes.firstOrNull()?.position ?: Offset.Zero
+                    showContextMenu = true
                 }
             }
         }
-    } else Modifier
+    }
 
     Box(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -1093,53 +1108,83 @@ private fun WorktreeItem(
             val deleteEnabled = isDeleteEnabled(isMain = worktree.isMain, isCurrent = isCurrent, isDeleting = isDeleting)
             var isDeleteHovered by remember { mutableStateOf(false) }
 
-            Box(
-                modifier = Modifier
-                    .pointerMoveFilter(
-                        onEnter = {
-                            isDeleteHovered = true
-                            false
-                        },
-                        onExit = {
-                            isDeleteHovered = false
-                            false
-                        }
+            if (isHovered) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "💻",
+                        modifier = Modifier
+                            .pointerHoverIcon(PointerIcon(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)))
+                            .pointerInput(Unit) {
+                                detectTapGestures(onTap = { onOpenInTerminal() })
+                            },
+                        color = if (isSystemInDarkTheme()) Color.White else Color.Black
                     )
-            ) {
-                OutlinedButton(onClick = { if (deleteEnabled) onDelete() }, enabled = deleteEnabled) {
-                    Text("Delete")
-                }
-
-                if (!deleteEnabled && isDeleteHovered) {
-                    val tooltipText = when {
-                        worktree.isMain -> "Main working tree can’t be removed."
-                        isCurrent -> "This worktree is currently open. Close it (or delete from another window) to remove it."
-                        else -> null
-                    }
-
-                    if (tooltipText != null) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .offset(y = (-40).dp)
-                                .background(
-                                    if (isSystemInDarkTheme()) Color(0xEE2B2B2B) else Color(0xEEFFFFFF),
-                                    RoundedCornerShape(6.dp)
-                                )
-                                .border(1.dp, if (isSystemInDarkTheme()) Color(0x55FFFFFF) else Color(0x22000000), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 8.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                text = tooltipText,
-                                fontWeight = FontWeight.Light
+                    Text(
+                        text = "📂",
+                        modifier = Modifier
+                            .pointerHoverIcon(PointerIcon(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)))
+                            .pointerInput(Unit) {
+                                detectTapGestures(onTap = { onRevealInExplorer() })
+                            },
+                        color = if (isSystemInDarkTheme()) Color.White else Color.Black
+                    )
+                    Box(
+                        modifier = Modifier
+                            .pointerMoveFilter(
+                                onEnter = {
+                                    isDeleteHovered = true
+                                    false
+                                },
+                                onExit = {
+                                    isDeleteHovered = false
+                                    false
+                                }
                             )
+                    ) {
+                        Text(
+                            text = "🗑",
+                            modifier = Modifier
+                                .pointerHoverIcon(if (deleteEnabled) PointerIcon(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)) else PointerIcon.Default)
+                                .pointerInput(deleteEnabled) {
+                                    if (deleteEnabled) {
+                                        detectTapGestures(onTap = { onDelete() })
+                                    }
+                                },
+                            color = if (deleteEnabled) (if (isSystemInDarkTheme()) Color.White else Color.Black) else Color.Gray
+                        )
+
+                        if (!deleteEnabled && isDeleteHovered) {
+                            val tooltipText = when {
+                                worktree.isMain -> "Main working tree can’t be removed."
+                                isCurrent -> "This worktree is currently open. Close it (or delete from another window) to remove it."
+                                else -> null
+                            }
+
+                            if (tooltipText != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .offset(y = (-40).dp)
+                                        .background(
+                                            if (isSystemInDarkTheme()) Color(0xEE2B2B2B) else Color(0xEEFFFFFF),
+                                            RoundedCornerShape(6.dp)
+                                        )
+                                        .border(1.dp, if (isSystemInDarkTheme()) Color(0x55FFFFFF) else Color(0x22000000), RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = tooltipText,
+                                        fontWeight = FontWeight.Light
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
         }
 
-        if (showContextMenu && onMergeIntoBranch != null) {
+        if (showContextMenu) {
             Popup(
                 alignment = Alignment.TopStart,
                 offset = IntOffset(contextMenuOffset.x.toInt(), contextMenuOffset.y.toInt()),
@@ -1154,14 +1199,46 @@ private fun WorktreeItem(
                         .border(1.dp, if (isSystemInDarkTheme()) Color(0x55FFFFFF) else Color(0x22000000), RoundedCornerShape(4.dp))
                         .padding(4.dp)
                 ) {
-                    Column {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (onMergeIntoBranch != null) {
+                            OutlinedButton(
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = {
+                                    showContextMenu = false
+                                    onMergeIntoBranch()
+                                }
+                            ) {
+                                Text("Merge into other branch...")
+                            }
+                        }
+                        if (onPullFromRemote != null) {
+                            OutlinedButton(
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = {
+                                    showContextMenu = false
+                                    onPullFromRemote()
+                                }
+                            ) {
+                                Text("Pull from remote")
+                            }
+                        }
                         OutlinedButton(
+                            modifier = Modifier.fillMaxWidth(),
                             onClick = {
                                 showContextMenu = false
-                                onMergeIntoBranch()
+                                onOpenInTerminal()
                             }
                         ) {
-                            Text("Merge into other branch...")
+                            Text("Open in Terminal")
+                        }
+                        OutlinedButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                showContextMenu = false
+                                onRevealInExplorer()
+                            }
+                        ) {
+                            Text("Reveal in Explorer")
                         }
                     }
                 }

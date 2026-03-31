@@ -7,6 +7,7 @@ A powerful IntelliJ IDEA/Android Studio plugin that simplifies Git worktree mana
 - **List Worktrees**: View all worktrees in your repository with their branch names, paths, and commit information
 - **Create Worktrees**: Create new worktrees with a simple dialog interface
 - **Copy Ignored Files**: Optionally copy gitignored files (build artifacts, dependencies, etc.) to new worktrees
+- **Open in Terminal**: Open a worktree directory in the IDE terminal (requires the Terminal plugin)
 - **Auto-Open in New Window**: Automatically opens newly created worktrees in a separate IDE window
 - **Delete Worktrees**: Remove worktrees with one click (with confirmation dialog)
 - **Modern UI**: Built with Jetpack Compose for a native, responsive user experience
@@ -97,6 +98,7 @@ Each worktree:
 - IntelliJ IDEA 2025.2+ or Android Studio with equivalent platform version
 - Git 2.5+ (for worktree support)
 - Git 2.11.0+ recommended (for ignored files detection feature)
+- Terminal plugin is required for the "Open in Terminal" action (it is bundled in most IDE distributions)
 
 ## Architecture
 

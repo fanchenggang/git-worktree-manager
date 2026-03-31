@@ -30,6 +30,7 @@ dependencies {
 
         bundledPlugin("org.jetbrains.kotlin")
         bundledPlugin("Git4Idea")
+        bundledPlugin("org.jetbrains.plugins.terminal")
     }
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")

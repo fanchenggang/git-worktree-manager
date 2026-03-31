@@ -165,5 +165,14 @@ class WorktreeRepository(private val project: Project) : WorktreeRepositoryContr
             service.pushBranch(repository, worktreePath, branchName)
         }
     }
+
+    override suspend fun pruneWorktrees(): Result<Unit> = withContext(Dispatchers.IO) {
+        val repository = currentRepository
+        if (repository == null) {
+            Result.failure(NoRepositoryException("No Git repository found in project"))
+        } else {
+            service.pruneWorktrees(repository)
+        }
+    }
 }
 

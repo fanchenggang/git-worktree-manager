@@ -272,4 +272,50 @@ class WorktreeViewModel(
             }
         }
     }
+
+    /**
+     * Pulls [branchName] from the remote repository.
+     */
+    fun pullBranch(
+        worktreePath: String,
+        branchName: String,
+        onSuccess: () -> Unit,
+        onError: (Throwable) -> Unit
+    ) {
+        coroutineScope.launch {
+            state = state.copy(error = null, pullingBranch = branchName)
+            try {
+                repository.pullBranch(worktreePath, branchName)
+                    .onSuccess {
+                        refreshWorktrees()
+                        onSuccess()
+                    }
+                    .onFailure { onError(it) }
+            } finally {
+                state = state.copy(pullingBranch = null)
+            }
+        }
+    }
+
+    /**
+     * Prunes stale worktrees.
+     */
+    fun pruneWorktrees(
+        onSuccess: () -> Unit,
+        onError: (Throwable) -> Unit
+    ) {
+        coroutineScope.launch {
+            state = state.copy(error = null, isPruning = true)
+            try {
+                repository.pruneWorktrees()
+                    .onSuccess {
+                        refreshWorktrees()
+                        onSuccess()
+                    }
+                    .onFailure { onError(it) }
+            } finally {
+                state = state.copy(isPruning = false)
+            }
+        }
+    }
 }

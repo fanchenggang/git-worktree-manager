@@ -20,4 +20,6 @@ interface WorktreeRepositoryContract {
     suspend fun pullBranch(worktreePath: String, branchName: String): Result<Unit>
 
     suspend fun pushBranch(worktreePath: String, branchName: String): Result<Unit>
+    
+    suspend fun pruneWorktrees(): Result<Unit>
 }
