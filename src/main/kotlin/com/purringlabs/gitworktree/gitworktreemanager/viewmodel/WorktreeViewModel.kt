@@ -222,18 +222,22 @@ class WorktreeViewModel(
     }
 
     /**
-     * Merges [sourceBranch] into the branch checked out in the worktree at [targetWorktreePath].
+     * Pulls [targetBranch] to latest, then merges [sourceBranch] into it.
      * @param sourceBranch Branch to merge (e.g. the worktree row the user right-clicked)
      * @param targetWorktreePath Path of the worktree into whose current branch to merge
+     * @param targetBranch Branch name checked out in the target worktree (pulled first before merge)
      */
     fun mergeBranchInto(
         sourceBranch: String,
         targetWorktreePath: String,
+        targetBranch: String,
         onSuccess: () -> Unit,
         onError: (Throwable) -> Unit
     ) {
         coroutineScope.launch {
             state = state.copy(error = null)
+            repository.pullBranch(targetWorktreePath, targetBranch)
+                .onFailure { onError(it); return@launch }
             repository.mergeBranchInto(sourceBranch, targetWorktreePath)
                 .onSuccess {
                     refreshWorktrees()

@@ -31,6 +31,10 @@ Read more about the benefits: [Increase Productivity with Git Worktrees](https:/
 2. Run `./gradlew build`
 3. Install the plugin from `build/distributions/git-worktree-manager-*.zip`
 
+set JAVA_HOME=D:\jdk\jdk-21.0.7
+$env:JAVA_HOME = "D:\jdk\jdk-21.0.7"    powershell
+./gradlew.bat build -Dorg.gradle.java.home=D:\jdk\jdk-21.0.7
+
 ### From Marketplace 
 
 Search for "Git Worktree Manager" in the IntelliJ Plugin Marketplace.

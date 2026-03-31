@@ -19,7 +19,9 @@ repositories {
 // Read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html
 dependencies {
     intellijPlatform {
-        intellijIdea("2025.2.4")
+//        local(file("C:\\Users\\M\\AppData\\Local\\Programs\\IntelliJ IDEA Ultimate"))  // 或你的实际安装路径
+
+        intellijIdea(version="2025.2.4")
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
 
         // Add plugin dependencies for compilation here:
