@@ -5,9 +5,12 @@ A powerful IntelliJ IDEA/Android Studio plugin that simplifies Git worktree mana
 ## Features
 
 - **List Worktrees**: View all worktrees in your repository with their branch names, paths, and commit information
-- **Create Worktrees**: Create new worktrees with a simple dialog interface
+- **Create Worktrees**: Create new worktrees with a simple dialog interface (new branch or existing local branch)
 - **Copy Ignored Files**: Optionally copy gitignored files (build artifacts, dependencies, etc.) to new worktrees
+- **Push to Remote**: Push a worktree branch to origin with one click
+- **Copy Actions**: Quickly copy worktree path/branch/commit to clipboard
 - **Open in Terminal**: Open a worktree directory in the IDE terminal (requires the Terminal plugin)
+- **Reveal in Explorer**: Reveal a worktree directory in the OS file manager
 - **Auto-Open in New Window**: Automatically opens newly created worktrees in a separate IDE window
 - **Delete Worktrees**: Remove worktrees with one click (with confirmation dialog)
 - **Modern UI**: Built with Jetpack Compose for a native, responsive user experience
@@ -29,6 +32,10 @@ Read more about the benefits: [Increase Productivity with Git Worktrees](https:/
 ### From Source
 
 1. Clone this repository
+2. (Optional) Set proxy environment variables if you are behind a firewall:
+   - `https_proxy=http://127.0.0.1:7897`
+   - `http_proxy=http://127.0.0.1:7897`
+   - `all_proxy=socks5://127.0.0.1:7897`
 2. Run `./gradlew build`
 3. Install the plugin from `build/distributions/git-worktree-manager-*.zip`
 
@@ -52,18 +59,16 @@ https://plugins.jetbrains.com/plugin/29905-git-worktree-manager?noRedirect=true
 ### Creating a Worktree
 
 1. Click the "Create Worktree" button
-2. Enter a name for the worktree (e.g., "feature-auth")
-3. Enter a branch name (e.g., "feature/auth")
-4. Choose whether to copy ignored files:
-   - **Yes**: The plugin will scan for files ignored by `.gitignore` and let you select which ones to copy
-     - Useful for copying build artifacts, dependencies (node_modules, .gradle cache), IDE settings, etc.
-     - Files are displayed in a table with checkboxes for selection
-     - Use "Select All" / "Deselect All" for convenience
-     - A summary of copy results will be shown if any files were copied
-   - **No**: Create the worktree without copying ignored files (faster)
-5. The plugin will:
+2. Fill the dialog:
+   - **Worktree name**: e.g., "feature-auth"
+   - **Branch name**: e.g., "feature/auth"
+   - **Create new branch**:
+     - **Enabled**: create and checkout a new local branch
+     - **Disabled**: use an existing local branch
+   - **Copy ignored files** (optional): scan `.gitignore` and let you select files to copy
+3. The plugin will:
    - Create the worktree in the parent directory (e.g., `../myproject-feature-auth`)
-   - Create a new branch
+   - Create or reuse the branch based on the selected mode
    - Copy selected ignored files (if requested)
    - Automatically open the worktree in a new IDE window
 

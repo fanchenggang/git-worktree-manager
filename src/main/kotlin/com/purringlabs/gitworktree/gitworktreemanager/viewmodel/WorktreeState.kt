@@ -14,6 +14,8 @@ data class WorktreeState(
     val isCreating: Boolean = false,
     val isPruning: Boolean = false,
     val deletingWorktreePath: String? = null,
+    val mergingSourceBranch: String? = null,
+    val mergingTargetBranch: String? = null,
     val pushingBranch: String? = null,
     val pullingBranch: String? = null,
     val error: String? = null,

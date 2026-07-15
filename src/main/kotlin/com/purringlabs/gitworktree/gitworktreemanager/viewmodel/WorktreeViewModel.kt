@@ -235,15 +235,26 @@ class WorktreeViewModel(
         onError: (Throwable) -> Unit
     ) {
         coroutineScope.launch {
-            state = state.copy(error = null)
-            repository.pullBranch(targetWorktreePath, targetBranch)
-                .onFailure { onError(it); return@launch }
-            repository.mergeBranchInto(sourceBranch, targetWorktreePath)
-                .onSuccess {
-                    refreshWorktrees()
-                    onSuccess()
-                }
-                .onFailure { onError(it) }
+            state = state.copy(
+                error = null,
+                mergingSourceBranch = sourceBranch,
+                mergingTargetBranch = targetBranch
+            )
+            try {
+                repository.pullBranch(targetWorktreePath, targetBranch)
+                    .onFailure { onError(it); return@launch }
+                repository.mergeBranchInto(sourceBranch, targetWorktreePath)
+                    .onSuccess {
+                        refreshWorktrees()
+                        onSuccess()
+                    }
+                    .onFailure { onError(it) }
+            } finally {
+                state = state.copy(
+                    mergingSourceBranch = null,
+                    mergingTargetBranch = null
+                )
+            }
         }
     }
 
@@ -261,6 +272,27 @@ class WorktreeViewModel(
             try {
                 repository.pullBranch(worktreePath, branchName)
                     .onFailure { onError(it); return@launch }
+                repository.pushBranch(worktreePath, branchName)
+                    .onSuccess {
+                        refreshWorktrees()
+                        onSuccess()
+                    }
+                    .onFailure { onError(it) }
+            } finally {
+                state = state.copy(pushingBranch = null)
+            }
+        }
+    }
+
+    fun pushToRemote(
+        worktreePath: String,
+        branchName: String,
+        onSuccess: () -> Unit,
+        onError: (Throwable) -> Unit
+    ) {
+        coroutineScope.launch {
+            state = state.copy(error = null, pushingBranch = branchName)
+            try {
                 repository.pushBranch(worktreePath, branchName)
                     .onSuccess {
                         refreshWorktrees()

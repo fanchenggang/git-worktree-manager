@@ -22,19 +22,31 @@ import androidx.compose.ui.input.pointer.pointerMoveFilter
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.window.Popup
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.input.pointer.isSecondaryPressed
+import com.intellij.icons.AllIcons
 import com.intellij.ide.impl.ProjectUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.Presentation
+import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.ui.MessageType
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.ui.popup.util.PopupUtil
+import com.intellij.openapi.actionSystem.DataContext
+import com.intellij.ide.DataManager
+import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.ui.awt.RelativePoint
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.util.Disposer
@@ -77,8 +89,12 @@ import org.jetbrains.jewel.ui.component.OutlinedButton
 import org.jetbrains.jewel.ui.component.Text
 import java.awt.Cursor
 import java.awt.Frame
+import java.awt.Point
+import java.awt.datatransfer.StringSelection
 import java.io.File
 import java.util.UUID
+import javax.swing.Icon
+import javax.swing.JLabel
 import javax.swing.JProgressBar
 
 private fun showOperationError(project: Project, error: Throwable, operation: String) {
@@ -154,10 +170,11 @@ private fun WorktreeManagerContent(project: Project) {
         }
     }
 
-    val onCreateWorktree: (String, String) -> Unit = { name, branch ->
+    val onCreateWorktree: (String, String, Boolean) -> Unit = { name, branch, createNewBranch ->
         viewModel.createWorktree(
             name = name,
             branchName = branch,
+            createNewBranch = createNewBranch,
             onSuccess = { createResult ->
                 ApplicationManager.getApplication().invokeLater {
                     // Open the worktree in a new window
@@ -181,7 +198,7 @@ private fun WorktreeManagerContent(project: Project) {
         )
     }
 
-    val onCreateWorktreeWithIgnoredFiles: (String, String) -> Unit = { name, branch ->
+    val onCreateWorktreeWithIgnoredFiles: (String, String, Boolean) -> Unit = { name, branch, createNewBranch ->
         uiScope.launch {
             // Step 1: Scan for ignored files
             viewModel.scanIgnoredFiles()
@@ -209,7 +226,7 @@ private fun WorktreeManagerContent(project: Project) {
                     )
                 }
                 // Still create the worktree without copying files
-                onCreateWorktree(name, branch)
+                onCreateWorktree(name, branch, createNewBranch)
                 return@launch
             }
 
@@ -229,6 +246,7 @@ private fun WorktreeManagerContent(project: Project) {
                 viewModel.createWorktreeWithIgnoredFiles(
                     worktreeName = name,
                     branchName = branch,
+                    createNewBranch = createNewBranch,
                     selectedFiles = selectedFiles,
                     onSuccess = { createResult ->
                         ApplicationManager.getApplication().invokeLater {
@@ -261,7 +279,7 @@ private fun WorktreeManagerContent(project: Project) {
                 )
             } else {
                 // User cancelled selection - create worktree without copying files
-                onCreateWorktree(name, branch)
+                onCreateWorktree(name, branch, createNewBranch)
             }
         }
     }
@@ -406,7 +424,266 @@ private fun WorktreeManagerContent(project: Project) {
         }
     }
 
+    fun copyToClipboard(label: String, value: String) {
+        CopyPasteManager.getInstance().setContents(StringSelection(value))
+        PopupUtil.showBalloonForActiveComponent("$label copied", MessageType.INFO)
+    }
+
     val currentProjectBasePath = remember(project) { project.basePath }
+
+    val onConfirmDelete: (WorktreeInfo) -> Boolean = { worktree ->
+        val result = Messages.showYesNoDialog(
+            project,
+            "Are you sure you want to delete this worktree?\n${worktree.path}",
+            "Delete Worktree",
+            Messages.getWarningIcon()
+        )
+        result == Messages.YES
+    }
+
+    val onDeleteWorktree: (WorktreeInfo) -> Unit = { worktree ->
+        viewModel.deleteWorktree(
+            worktreePath = worktree.path,
+            onSuccess = { result ->
+                ApplicationManager.getApplication().invokeLater {
+                    if (result.branchDeleted) {
+                        PopupUtil.showBalloonForActiveComponent("Worktree deleted", MessageType.INFO)
+                    } else {
+                        val reason = result.branchDeleteError?.gitErrorOutput
+                            ?: result.branchDeleteError?.errorMessage
+                            ?: "Unknown reason"
+                        Messages.showWarningDialog(
+                            project,
+                            "Worktree removed, but branch cleanup failed.\n\nReason: $reason",
+                            "Partial Success"
+                        )
+                    }
+                }
+            },
+            onError = { error ->
+                ApplicationManager.getApplication().invokeLater {
+                    showOperationError(project, error, operation = "DELETE_WORKTREE")
+                }
+            }
+        )
+    }
+
+    val onMergeIntoBranch: (WorktreeInfo) -> Unit = onMergeIntoBranch@{ sourceWorktree ->
+        val sourceBranch = sourceWorktree.branch
+        if (sourceBranch.isNullOrBlank()) return@onMergeIntoBranch
+        val targetWorktrees = viewModel.state.worktrees
+            .filter { it.path != sourceWorktree.path && it.branch != null }
+            .sortedByDescending { it.branch?.lowercase() == "develop" }
+        if (targetWorktrees.isEmpty()) {
+            Messages.showInfoMessage(
+                project,
+                "No other worktree with a branch to merge into.",
+                "Merge"
+            )
+            return@onMergeIntoBranch
+        }
+        val dialog = MergeIntoBranchDialog(project, sourceBranch, targetWorktrees)
+        if (dialog.showAndGet()) {
+            val target = dialog.getSelectedTarget()
+            if (target != null) {
+                val targetBranch = target.branch!!
+                viewModel.mergeBranchInto(
+                    sourceBranch = sourceBranch,
+                    targetWorktreePath = target.path,
+                    targetBranch = targetBranch,
+                    onSuccess = {
+                        ApplicationManager.getApplication().invokeLater {
+                            val choice = Messages.showDialog(
+                                project,
+                                "Merged \"$sourceBranch\" into $targetBranch successfully.\n\nPush to remote?",
+                                "Merge Success",
+                                arrayOf("Cancel", "Push"),
+                                1,
+                                Messages.getQuestionIcon()
+                            )
+                            if (choice == 1) {
+                                viewModel.pushBranch(
+                                    worktreePath = target.path,
+                                    branchName = targetBranch,
+                                    onSuccess = {
+                                        ApplicationManager.getApplication().invokeLater {
+                                            PopupUtil.showBalloonForActiveComponent("Pushed $targetBranch", MessageType.INFO)
+                                        }
+                                    },
+                                    onError = { error ->
+                                        ApplicationManager.getApplication().invokeLater {
+                                            showOperationError(project, error, operation = "PUSH_BRANCH")
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    },
+                    onError = { error ->
+                        ApplicationManager.getApplication().invokeLater {
+                            showOperationError(project, error, operation = "MERGE_BRANCH")
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    val onPullFromRemote: (WorktreeInfo) -> Unit = onPullFromRemote@{ worktree ->
+        val branch = worktree.branch ?: return@onPullFromRemote
+        viewModel.pullBranch(
+            worktreePath = worktree.path,
+            branchName = branch,
+            onSuccess = {
+                ApplicationManager.getApplication().invokeLater {
+                    PopupUtil.showBalloonForActiveComponent("Pulled $branch", MessageType.INFO)
+                }
+            },
+            onError = { error ->
+                ApplicationManager.getApplication().invokeLater {
+                    showOperationError(project, error, operation = "PULL_BRANCH")
+                }
+            }
+        )
+    }
+
+    val onPushToRemote: (WorktreeInfo) -> Unit = onPushToRemote@{ worktree ->
+        val branch = worktree.branch ?: return@onPushToRemote
+        viewModel.pushToRemote(
+            worktreePath = worktree.path,
+            branchName = branch,
+            onSuccess = {
+                ApplicationManager.getApplication().invokeLater {
+                    PopupUtil.showBalloonForActiveComponent("Pushed $branch", MessageType.INFO)
+                }
+            },
+            onError = { error ->
+                ApplicationManager.getApplication().invokeLater {
+                    showOperationError(project, error, operation = "PUSH_BRANCH")
+                }
+            }
+        )
+    }
+
+    val onOpenInTerminal: (WorktreeInfo) -> Unit = { worktree ->
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(worktree.path)
+                if (virtualFile != null) {
+                    org.jetbrains.plugins.terminal.TerminalView.getInstance(project).openTerminalIn(virtualFile)
+                } else {
+                    Messages.showErrorDialog(project, "Could not find worktree directory.", "Error")
+                }
+            } catch (e: NoClassDefFoundError) {
+                Messages.showErrorDialog(project, "Terminal plugin is not available.", "Error")
+            } catch (e: Exception) {
+                Messages.showErrorDialog(project, "Failed to open terminal: ${e.message}", "Error")
+            }
+        }
+    }
+
+    val onRevealInExplorer: (WorktreeInfo) -> Unit = { worktree ->
+        ApplicationManager.getApplication().invokeLater {
+            com.intellij.ide.actions.RevealFileAction.openDirectory(File(worktree.path))
+        }
+    }
+
+    val onCopyPath: (WorktreeInfo) -> Unit = { worktree ->
+        copyToClipboard(label = "Path", value = worktree.path)
+    }
+
+    val onCopyBranch: (WorktreeInfo) -> Unit = { worktree ->
+        val branch = worktree.branch
+        if (branch != null) {
+            copyToClipboard(label = "Branch", value = branch)
+        } else {
+            PopupUtil.showBalloonForActiveComponent("No branch to copy", MessageType.INFO)
+        }
+    }
+
+    val onCopyCommit: (WorktreeInfo) -> Unit = { worktree ->
+        copyToClipboard(label = "Commit", value = worktree.commit)
+    }
+
+    val onShowContextMenu: (WorktreeInfo, Offset) -> Unit = onShowContextMenu@{ worktree, offset ->
+        val component = IdeFocusManager.getInstance(project).focusOwner ?: return@onShowContextMenu
+        val dataContext: DataContext = DataManager.getInstance().getDataContext(component)
+
+        val st = viewModel.state
+        val branch = worktree.branch
+        val isCurrent = isCurrentWorktree(currentProjectBasePath = currentProjectBasePath, worktreePath = worktree.path)
+        val deleteEnabled = isDeleteEnabled(isMain = worktree.isMain, isCurrent = isCurrent, isDeleting = st.deletingWorktreePath == worktree.path)
+        val busy = st.isCreating ||
+            st.isScanning ||
+            st.isPruning ||
+            st.deletingWorktreePath != null ||
+            st.mergingSourceBranch != null ||
+            st.pushingBranch != null ||
+            st.pullingBranch != null
+
+        fun makeAction(
+            text: String,
+            icon: Icon,
+            visible: Boolean = true,
+            enabled: Boolean = true,
+            run: () -> Unit
+        ): AnAction {
+            return object : AnAction(text, null, icon) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    run()
+                }
+
+                override fun update(e: AnActionEvent) {
+                    e.presentation.isVisible = visible
+                    e.presentation.isEnabled = enabled
+                }
+            }
+        }
+
+        val group = DefaultActionGroup().apply {
+            add(makeAction("Merge into other branch...", AllIcons.Vcs.Merge, visible = branch != null, enabled = !busy && branch != null) {
+                onMergeIntoBranch(worktree)
+            })
+            add(makeAction("Pull from remote", AllIcons.Actions.Refresh, visible = branch != null, enabled = !busy && branch != null) {
+                onPullFromRemote(worktree)
+            })
+            add(makeAction("Push to remote", AllIcons.Vcs.Push, visible = branch != null, enabled = !busy && branch != null) {
+                onPushToRemote(worktree)
+            })
+            addSeparator()
+            add(makeAction("Open in Terminal", AllIcons.Nodes.Console, enabled = !busy) {
+                onOpenInTerminal(worktree)
+            })
+            add(makeAction("Reveal in Explorer", AllIcons.Nodes.Folder, enabled = !busy) {
+                onRevealInExplorer(worktree)
+            })
+            addSeparator()
+            add(makeAction("Copy path", AllIcons.Actions.Copy, enabled = true) {
+                onCopyPath(worktree)
+            })
+            add(makeAction("Copy branch", AllIcons.Actions.Copy, visible = branch != null, enabled = branch != null) {
+                onCopyBranch(worktree)
+            })
+            add(makeAction("Copy commit", AllIcons.Actions.Copy, enabled = true) {
+                onCopyCommit(worktree)
+            })
+            addSeparator()
+            add(makeAction("Delete worktree", AllIcons.General.Remove, enabled = !busy && deleteEnabled) {
+                if (onConfirmDelete(worktree)) {
+                    onDeleteWorktree(worktree)
+                }
+            })
+        }
+
+        val popup = JBPopupFactory.getInstance().createActionGroupPopup(
+            null,
+            group,
+            dataContext,
+            JBPopupFactory.ActionSelectionAid.SPEEDSEARCH,
+            true
+        )
+        popup.show(RelativePoint(component, Point(offset.x.toInt(), offset.y.toInt())))
+    }
 
     WorktreeListContent(
         state = viewModel.state,
@@ -437,11 +714,7 @@ private fun WorktreeManagerContent(project: Project) {
             viewModel.pruneWorktrees(
                 onSuccess = {
                     ApplicationManager.getApplication().invokeLater {
-                        Messages.showInfoMessage(
-                            project,
-                            "Stale worktrees pruned successfully!",
-                            "Success"
-                        )
+                        PopupUtil.showBalloonForActiveComponent("Pruned stale worktrees", MessageType.INFO)
                     }
                 },
                 onError = { error ->
@@ -454,6 +727,7 @@ private fun WorktreeManagerContent(project: Project) {
         onOpenWorktree = { worktree ->
             openOrFocusWorktree(project, worktree.path, TelemetryServiceImpl.getInstance())
         },
+        onShowContextMenu = onShowContextMenu,
         onCreateWorktreeRequest = {
             val repository = findValidRepository(project)
             if (repository == null) {
@@ -469,170 +743,55 @@ private fun WorktreeManagerContent(project: Project) {
             if (dialog.showAndGet()) {
                 val rawName = dialog.getWorktreeName()
                 val rawBranchName = dialog.getBranchName()
+                val createNewBranch = dialog.shouldCreateNewBranch()
                 val copyIgnoredFiles = dialog.shouldCopyIgnoredFiles()
 
                 if (rawName.isNotBlank() && rawBranchName.isNotBlank()) {
                     val worktreeName = onValidateWorktreeName(rawName)
                     if (!worktreeName.isNullOrBlank()) {
-                        val branchName = onValidateBranchName(rawBranchName)
+                        val branchName = if (createNewBranch) {
+                            onValidateBranchName(rawBranchName)
+                        } else {
+                            val candidate = sanitizeBranchName(rawBranchName)
+                            if (candidate.isBlank()) {
+                                Messages.showErrorDialog(
+                                    project,
+                                    "Branch name is invalid.",
+                                    "Invalid Branch Name"
+                                )
+                                null
+                            } else if (repository.branches.localBranches.any { it.name == candidate }) {
+                                candidate
+                            } else {
+                                Messages.showErrorDialog(
+                                    project,
+                                    "Local branch '$candidate' does not exist. Enable 'Create new branch' or enter an existing branch name.",
+                                    "Branch Not Found"
+                                )
+                                null
+                            }
+                        }
                         if (!branchName.isNullOrBlank()) {
                             if (copyIgnoredFiles) {
-                                onCreateWorktreeWithIgnoredFiles(worktreeName, branchName)
+                                onCreateWorktreeWithIgnoredFiles(worktreeName, branchName, createNewBranch)
                             } else {
-                                onCreateWorktree(worktreeName, branchName)
+                                onCreateWorktree(worktreeName, branchName, createNewBranch)
                             }
                         }
                     }
                 }
             }
         },
-        onDeleteWorktree = { worktree ->
-            viewModel.deleteWorktree(
-                worktreePath = worktree.path,
-                onSuccess = { result ->
-                    ApplicationManager.getApplication().invokeLater {
-                        if (result.branchDeleted) {
-                            Messages.showInfoMessage(
-                                project,
-                                "Worktree deleted successfully!",
-                                "Success"
-                            )
-                        } else {
-                            val reason = result.branchDeleteError?.gitErrorOutput
-                                ?: result.branchDeleteError?.errorMessage
-                                ?: "Unknown reason"
-                            Messages.showWarningDialog(
-                                project,
-                                "Worktree removed, but branch cleanup failed.\n\nReason: $reason",
-                                "Partial Success"
-                            )
-                        }
-                    }
-                },
-                onError = { error ->
-                    ApplicationManager.getApplication().invokeLater {
-                        showOperationError(project, error, operation = "DELETE_WORKTREE")
-                    }
-                }
-            )
-        },
-        onConfirmDelete = { worktree ->
-            val result = Messages.showYesNoDialog(
-                project,
-                "Are you sure you want to delete this worktree?\n${worktree.path}",
-                "Delete Worktree",
-                Messages.getWarningIcon()
-            )
-            result == Messages.YES
-        },
-        onMergeIntoBranch = { sourceWorktree ->
-            val sourceBranch = sourceWorktree.branch
-            if (sourceBranch.isNullOrBlank()) return@WorktreeListContent
-            val targetWorktrees = viewModel.state.worktrees
-                .filter { it.path != sourceWorktree.path && it.branch != null }
-                .sortedByDescending { it.branch?.lowercase() == "develop" }
-            if (targetWorktrees.isEmpty()) {
-                Messages.showInfoMessage(
-                    project,
-                    "No other worktree with a branch to merge into.",
-                    "Merge"
-                )
-                return@WorktreeListContent
-            }
-            val dialog = MergeIntoBranchDialog(project, sourceBranch, targetWorktrees)
-            if (dialog.showAndGet()) {
-                val target = dialog.getSelectedTarget()
-                if (target != null) {
-                    val targetBranch = target.branch!!
-                    viewModel.mergeBranchInto(
-                        sourceBranch = sourceBranch,
-                        targetWorktreePath = target.path,
-                        targetBranch = targetBranch,
-                        onSuccess = {
-                            ApplicationManager.getApplication().invokeLater {
-                                val choice = Messages.showDialog(
-                                    project,
-                                    "Merged \"$sourceBranch\" into $targetBranch successfully.\n\nPush to remote?",
-                                    "Merge Success",
-                                    arrayOf("Cancel", "Push"),
-                                    1,
-                                    Messages.getQuestionIcon()
-                                )
-                                if (choice == 1) {
-                                    viewModel.pushBranch(
-                                        worktreePath = target.path,
-                                        branchName = targetBranch,
-                                        onSuccess = {
-                                            ApplicationManager.getApplication().invokeLater {
-                                                Messages.showInfoMessage(
-                                                    project,
-                                                    "Pushed $targetBranch to remote.",
-                                                    "Push Success"
-                                                )
-                                            }
-                                        },
-                                        onError = { error ->
-                                            ApplicationManager.getApplication().invokeLater {
-                                                showOperationError(project, error, operation = "PUSH_BRANCH")
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        },
-                        onError = { error ->
-                            ApplicationManager.getApplication().invokeLater {
-                                showOperationError(project, error, operation = "MERGE_BRANCH")
-                            }
-                        }
-                    )
-                }
-            }
-        },
-        onPullFromRemote = { worktree ->
-            val branch = worktree.branch
-            if (branch != null) {
-                viewModel.pullBranch(
-                    worktreePath = worktree.path,
-                    branchName = branch,
-                    onSuccess = {
-                        ApplicationManager.getApplication().invokeLater {
-                            Messages.showInfoMessage(
-                                project,
-                                "Pulled $branch from remote successfully!",
-                                "Success"
-                            )
-                        }
-                    },
-                    onError = { error ->
-                        ApplicationManager.getApplication().invokeLater {
-                            showOperationError(project, error, operation = "PULL_BRANCH")
-                        }
-                    }
-                )
-            }
-        },
-        onOpenInTerminal = { worktree ->
-            ApplicationManager.getApplication().invokeLater {
-                try {
-                    val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(worktree.path)
-                    if (virtualFile != null) {
-                        org.jetbrains.plugins.terminal.TerminalView.getInstance(project).openTerminalIn(virtualFile)
-                    } else {
-                        Messages.showErrorDialog(project, "Could not find worktree directory.", "Error")
-                    }
-                } catch (e: NoClassDefFoundError) {
-                    Messages.showErrorDialog(project, "Terminal plugin is not available.", "Error")
-                } catch (e: Exception) {
-                    Messages.showErrorDialog(project, "Failed to open terminal: ${e.message}", "Error")
-                }
-            }
-        },
-        onRevealInExplorer = { worktree ->
-            ApplicationManager.getApplication().invokeLater {
-                com.intellij.ide.actions.RevealFileAction.openDirectory(File(worktree.path))
-            }
-        }
+        onDeleteWorktree = onDeleteWorktree,
+        onConfirmDelete = onConfirmDelete,
+        onMergeIntoBranch = onMergeIntoBranch,
+        onPullFromRemote = onPullFromRemote,
+        onPushToRemote = onPushToRemote,
+        onOpenInTerminal = onOpenInTerminal,
+        onRevealInExplorer = onRevealInExplorer,
+        onCopyPath = onCopyPath,
+        onCopyBranch = onCopyBranch,
+        onCopyCommit = onCopyCommit
     )
 }
 
@@ -800,18 +959,30 @@ private fun WorktreeListContent(
     onDeleteWorktree: (WorktreeInfo) -> Unit,
     onCreateWorktreeRequest: () -> Unit,
     onConfirmDelete: (WorktreeInfo) -> Boolean,
+    onShowContextMenu: (WorktreeInfo, Offset) -> Unit,
     onMergeIntoBranch: (WorktreeInfo) -> Unit,
     onPrune: () -> Unit,
     onPullFromRemote: (WorktreeInfo) -> Unit,
+    onPushToRemote: (WorktreeInfo) -> Unit,
     onOpenInTerminal: (WorktreeInfo) -> Unit,
-    onRevealInExplorer: (WorktreeInfo) -> Unit
+    onRevealInExplorer: (WorktreeInfo) -> Unit,
+    onCopyPath: (WorktreeInfo) -> Unit,
+    onCopyBranch: (WorktreeInfo) -> Unit,
+    onCopyCommit: (WorktreeInfo) -> Unit
 ) {
-    val isBusy = state.isCreating || state.isScanning || state.isPruning || state.deletingWorktreePath != null || state.pushingBranch != null || state.pullingBranch != null
+    val isBusy = state.isCreating ||
+        state.isScanning ||
+        state.isPruning ||
+        state.deletingWorktreePath != null ||
+        state.mergingSourceBranch != null ||
+        state.pushingBranch != null ||
+        state.pullingBranch != null
     val statusText = when {
         state.isScanning -> "Scanning ignored files..."
         state.isCreating -> "Creating worktree..."
         state.isPruning -> "Pruning worktrees..."
         state.deletingWorktreePath != null -> "Deleting worktree..."
+        state.mergingSourceBranch != null && state.mergingTargetBranch != null -> "Merging ${state.mergingSourceBranch} into ${state.mergingTargetBranch}..."
         state.pushingBranch != null -> "Pushing ${state.pushingBranch}..."
         state.pullingBranch != null -> "Pulling ${state.pullingBranch}..."
         else -> null
@@ -970,8 +1141,7 @@ private fun WorktreeListContent(
                                 onDeleteWorktree(worktree)
                             }
                         },
-                        onMergeIntoBranch = if (worktree.branch != null) ({ onMergeIntoBranch(worktree) }) else null,
-                        onPullFromRemote = if (worktree.branch != null) ({ onPullFromRemote(worktree) }) else null,
+                        onContextMenu = { offset -> onShowContextMenu(worktree, offset) },
                         onOpenInTerminal = { onOpenInTerminal(worktree) },
                         onRevealInExplorer = { onRevealInExplorer(worktree) }
                     )
@@ -993,14 +1163,11 @@ private fun WorktreeItem(
     isDeleting: Boolean,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
-    onMergeIntoBranch: (() -> Unit)?,
-    onPullFromRemote: (() -> Unit)?,
+    onContextMenu: (Offset) -> Unit,
     onOpenInTerminal: () -> Unit,
     onRevealInExplorer: () -> Unit
 ) {
     var isHovered by remember { mutableStateOf(false) }
-    var showContextMenu by remember { mutableStateOf(false) }
-    var contextMenuOffset by remember { mutableStateOf(Offset.Zero) }
 
     val currentBackground = when {
         !isCurrent -> Color.Transparent
@@ -1030,8 +1197,8 @@ private fun WorktreeItem(
                 val event = awaitPointerEvent()
                 if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
                     event.changes.forEach { it.consume() }
-                    contextMenuOffset = event.changes.firstOrNull()?.position ?: Offset.Zero
-                    showContextMenu = true
+                    val pos = event.changes.firstOrNull()?.position ?: Offset.Zero
+                    onContextMenu(pos)
                 }
             }
         }
@@ -1109,48 +1276,112 @@ private fun WorktreeItem(
             var isDeleteHovered by remember { mutableStateOf(false) }
 
             if (isHovered) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "💻",
-                        modifier = Modifier
-                            .pointerHoverIcon(PointerIcon(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)))
-                            .pointerInput(Unit) {
-                                detectTapGestures(onTap = { onOpenInTerminal() })
-                            },
-                        color = if (isSystemInDarkTheme()) Color.White else Color.Black
+                fun Modifier.actionCursor(enabled: Boolean): Modifier {
+                    return pointerHoverIcon(
+                        if (enabled) PointerIcon(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)) else PointerIcon.Default
                     )
-                    Text(
-                        text = "📂",
-                        modifier = Modifier
-                            .pointerHoverIcon(PointerIcon(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)))
-                            .pointerInput(Unit) {
-                                detectTapGestures(onTap = { onRevealInExplorer() })
-                            },
-                        color = if (isSystemInDarkTheme()) Color.White else Color.Black
+                }
+
+                @Composable
+                fun IdeaIcon(icon: Icon) {
+                    SwingPanel(
+                        modifier = Modifier.size(16.dp),
+                        factory = {
+                            JLabel().apply {
+                                isOpaque = false
+                                this.icon = icon
+                            }
+                        }
                     )
+                }
+
+                @Composable
+                fun IconActionButton(
+                    icon: Icon,
+                    tooltip: String,
+                    enabled: Boolean = true,
+                    onClick: () -> Unit
+                ) {
+                    var hovered by remember { mutableStateOf(false) }
+                    val bg = if (hovered) {
+                        if (isSystemInDarkTheme()) Color(0x22FFFFFF) else Color(0x14000000)
+                    } else Color.Transparent
+
                     Box(
                         modifier = Modifier
+                            .actionCursor(enabled)
                             .pointerMoveFilter(
                                 onEnter = {
-                                    isDeleteHovered = true
+                                    hovered = true
                                     false
                                 },
                                 onExit = {
-                                    isDeleteHovered = false
+                                    hovered = false
                                     false
                                 }
                             )
+                            .pointerInput(enabled) {
+                                if (enabled) detectTapGestures(onTap = { onClick() })
+                            }
+                            .size(28.dp)
+                            .background(bg, RoundedCornerShape(6.dp))
+                            .padding(6.dp)
                     ) {
-                        Text(
-                            text = "🗑",
-                            modifier = Modifier
-                                .pointerHoverIcon(if (deleteEnabled) PointerIcon(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)) else PointerIcon.Default)
-                                .pointerInput(deleteEnabled) {
-                                    if (deleteEnabled) {
-                                        detectTapGestures(onTap = { onDelete() })
-                                    }
-                                },
-                            color = if (deleteEnabled) (if (isSystemInDarkTheme()) Color.White else Color.Black) else Color.Gray
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            IdeaIcon(icon = icon)
+                        }
+
+                        if (hovered) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .offset(y = (-40).dp)
+                                    .background(
+                                        if (isSystemInDarkTheme()) Color(0xEE2B2B2B) else Color(0xEEFFFFFF),
+                                        RoundedCornerShape(6.dp)
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (isSystemInDarkTheme()) Color(0x55FFFFFF) else Color(0x22000000),
+                                        RoundedCornerShape(6.dp)
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Text(text = tooltip, fontWeight = FontWeight.Light)
+                            }
+                        }
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconActionButton(
+                        icon = AllIcons.Nodes.Console,
+                        tooltip = "Open in Terminal",
+                        onClick = onOpenInTerminal
+                    )
+                    IconActionButton(
+                        icon = AllIcons.Nodes.Folder,
+                        tooltip = "Reveal in Explorer",
+                        onClick = onRevealInExplorer
+                    )
+
+                    Box(
+                        modifier = Modifier.pointerMoveFilter(
+                            onEnter = {
+                                isDeleteHovered = true
+                                false
+                            },
+                            onExit = {
+                                isDeleteHovered = false
+                                false
+                            }
+                        )
+                    ) {
+                        IconActionButton(
+                            icon = AllIcons.General.Remove,
+                            tooltip = "Delete worktree",
+                            enabled = deleteEnabled,
+                            onClick = onDelete
                         )
 
                         if (!deleteEnabled && isDeleteHovered) {
@@ -1172,10 +1403,7 @@ private fun WorktreeItem(
                                         .border(1.dp, if (isSystemInDarkTheme()) Color(0x55FFFFFF) else Color(0x22000000), RoundedCornerShape(6.dp))
                                         .padding(horizontal = 8.dp, vertical = 6.dp)
                                 ) {
-                                    Text(
-                                        text = tooltipText,
-                                        fontWeight = FontWeight.Light
-                                    )
+                                    Text(text = tooltipText, fontWeight = FontWeight.Light)
                                 }
                             }
                         }
@@ -1184,65 +1412,5 @@ private fun WorktreeItem(
             }
         }
 
-        if (showContextMenu) {
-            Popup(
-                alignment = Alignment.TopStart,
-                offset = IntOffset(contextMenuOffset.x.toInt(), contextMenuOffset.y.toInt()),
-                onDismissRequest = { showContextMenu = false }
-            ) {
-                Box(
-                    modifier = Modifier
-                        .background(
-                            if (isSystemInDarkTheme()) Color(0xEE2B2B2B) else Color(0xEEFFFFFF),
-                            RoundedCornerShape(4.dp)
-                        )
-                        .border(1.dp, if (isSystemInDarkTheme()) Color(0x55FFFFFF) else Color(0x22000000), RoundedCornerShape(4.dp))
-                        .padding(4.dp)
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (onMergeIntoBranch != null) {
-                            OutlinedButton(
-                                modifier = Modifier.fillMaxWidth(),
-                                onClick = {
-                                    showContextMenu = false
-                                    onMergeIntoBranch()
-                                }
-                            ) {
-                                Text("Merge into other branch...")
-                            }
-                        }
-                        if (onPullFromRemote != null) {
-                            OutlinedButton(
-                                modifier = Modifier.fillMaxWidth(),
-                                onClick = {
-                                    showContextMenu = false
-                                    onPullFromRemote()
-                                }
-                            ) {
-                                Text("Pull from remote")
-                            }
-                        }
-                        OutlinedButton(
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = {
-                                showContextMenu = false
-                                onOpenInTerminal()
-                            }
-                        ) {
-                            Text("Open in Terminal")
-                        }
-                        OutlinedButton(
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = {
-                                showContextMenu = false
-                                onRevealInExplorer()
-                            }
-                        ) {
-                            Text("Reveal in Explorer")
-                        }
-                    }
-                }
-            }
-        }
     }
 }
