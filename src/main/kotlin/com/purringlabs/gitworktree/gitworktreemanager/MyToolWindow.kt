@@ -1,62 +1,35 @@
 package com.purringlabs.gitworktree.gitworktreemanager
 
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.ExperimentalComposeUiApi
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.pointerMoveFilter
-import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.awt.SwingPanel
-import androidx.compose.ui.input.pointer.isSecondaryPressed
 import com.intellij.icons.AllIcons
+import com.intellij.ide.DataManager
+import com.intellij.ide.actions.RevealFileAction
 import com.intellij.ide.impl.ProjectUtil
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.DefaultActionGroup
-import com.intellij.openapi.actionSystem.Presentation
-import com.intellij.openapi.ide.CopyPasteManager
-import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectManager
-import com.intellij.openapi.ui.MessageType
-import com.intellij.openapi.ui.Messages
-import com.intellij.openapi.ui.popup.util.PopupUtil
 import com.intellij.openapi.actionSystem.DataContext
-import com.intellij.ide.DataManager
-import com.intellij.openapi.ui.popup.JBPopupFactory
-import com.intellij.ui.awt.RelativePoint
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.MessageType
+import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.ui.popup.util.PopupUtil
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.ThrowableComputable
-import com.intellij.openapi.util.io.FileUtil
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
-import com.intellij.openapi.wm.ToolWindowManager
-import com.intellij.openapi.wm.WindowManager
+import com.intellij.ui.awt.RelativePoint
 import com.purringlabs.gitworktree.gitworktreemanager.models.WorktreeInfo
 import com.purringlabs.gitworktree.gitworktreemanager.repository.WorktreeRepository
 import com.purringlabs.gitworktree.gitworktreemanager.services.ClaudeCodeContextService
@@ -65,38 +38,31 @@ import com.purringlabs.gitworktree.gitworktreemanager.services.GitWorktreeServic
 import com.purringlabs.gitworktree.gitworktreemanager.services.IgnoredFilesService
 import com.purringlabs.gitworktree.gitworktreemanager.services.NoRepositoryUiHelper
 import com.purringlabs.gitworktree.gitworktreemanager.services.UiErrorMapper
+import com.purringlabs.gitworktree.gitworktreemanager.ui.WorktreeListScreen
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.AgentContextCopyDialog
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.AgentContextCopyResultDialog
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.CopyResultDialog
+import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.CreateWorktreeDialog
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.ErrorDetailsDialog
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.IgnoredFilesSelectionDialog
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.MergeIntoBranchDialog
-import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.CreateWorktreeDialog
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.RemoteBranchSelectionDialog
-import com.purringlabs.gitworktree.gitworktreemanager.util.BranchNameSanitizer
-import git4idea.repo.GitRepositoryManager
 import com.purringlabs.gitworktree.gitworktreemanager.viewmodel.WorktreeViewModel
 import git4idea.repo.GitRepository
-import git4idea.repo.GitRepositoryChangeListener
+import git4idea.repo.GitRepositoryManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.jewel.bridge.addComposeTab
-import org.jetbrains.jewel.ui.component.OutlinedButton
-import org.jetbrains.jewel.ui.component.Text
-import java.awt.Cursor
-import java.awt.Frame
+import org.jetbrains.plugins.terminal.TerminalView
 import java.awt.Point
 import java.awt.datatransfer.StringSelection
 import java.io.File
 import java.nio.file.Paths
 import javax.swing.Icon
-import javax.swing.JLabel
-import javax.swing.JProgressBar
 
 private fun showOperationError(project: Project, error: Throwable, operation: String) {
     val uiError = UiErrorMapper.map(error, operation)
@@ -638,9 +604,9 @@ private fun WorktreeManagerContent(project: Project) {
     val onOpenInTerminal: (WorktreeInfo) -> Unit = { worktree ->
         ApplicationManager.getApplication().invokeLater {
             try {
-                val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(worktree.path)
+                val virtualFile = LocalFileSystem.getInstance().findFileByPath(worktree.path)
                 if (virtualFile != null) {
-                    org.jetbrains.plugins.terminal.TerminalView.getInstance(project).openTerminalIn(virtualFile)
+                    TerminalView.getInstance(project).openTerminalIn(virtualFile)
                 } else {
                     Messages.showErrorDialog(project, "Could not find worktree directory.", "Error")
                 }
@@ -654,7 +620,7 @@ private fun WorktreeManagerContent(project: Project) {
 
     val onRevealInExplorer: (WorktreeInfo) -> Unit = { worktree ->
         ApplicationManager.getApplication().invokeLater {
-            com.intellij.ide.actions.RevealFileAction.openDirectory(File(worktree.path))
+            RevealFileAction.openDirectory(File(worktree.path))
         }
     }
 
@@ -755,7 +721,7 @@ private fun WorktreeManagerContent(project: Project) {
         popup.show(RelativePoint(component, Point(offset.x.toInt(), offset.y.toInt())))
     }
 
-    WorktreeListContent(
+    WorktreeListScreen(
         state = viewModel.state,
         currentProjectBasePath = currentProjectBasePath,
         onSearchQueryChange = viewModel::setSearchQuery,
@@ -766,7 +732,7 @@ private fun WorktreeManagerContent(project: Project) {
                     project = project,
                     attemptedOperation = "LIST_WORKTREES"
                 )
-                return@WorktreeListContent
+                return@WorktreeListScreen
             }
             viewModel.refreshWorktrees()
         },
@@ -777,7 +743,7 @@ private fun WorktreeManagerContent(project: Project) {
                     project = project,
                     attemptedOperation = "PRUNE_WORKTREES"
                 )
-                return@WorktreeListContent
+                return@WorktreeListScreen
             }
             viewModel.pruneWorktrees(
                 onSuccess = {
@@ -803,7 +769,7 @@ private fun WorktreeManagerContent(project: Project) {
                     project = project,
                     attemptedOperation = "CREATE_WORKTREE"
                 )
-                return@WorktreeListContent
+                return@WorktreeListScreen
             }
 
             val dialog = CreateWorktreeDialog(project)
@@ -857,31 +823,6 @@ private fun WorktreeManagerContent(project: Project) {
         onCopyCommit = onCopyCommit
     )
 }
-
-@VisibleForTesting
-internal fun registerGitRepoAutoRefresh(
-    project: Project,
-    requestAutoRefresh: () -> Unit,
-    cancelAutoRefresh: () -> Unit
-): Disposable {
-    val connection = project.messageBus.connect()
-    connection.subscribe(
-        GitRepository.GIT_REPO_CHANGE,
-        GitRepositoryChangeListener { requestAutoRefresh() }
-    )
-    return Disposable {
-        cancelAutoRefresh()
-        connection.dispose()
-    }
-}
-
-@VisibleForTesting
-internal fun canonicalizePath(path: String): String = FileUtil.toCanonicalPath(path)
-
-private fun worktreeFolderName(path: String): String = File(path).name
-
-@VisibleForTesting
-internal fun sanitizeBranchName(input: String): String = BranchNameSanitizer.sanitize(input)
 
 private data class ResolvedBranch(val name: String, val createNewBranch: Boolean)
 
@@ -937,48 +878,6 @@ private fun resolveExistingOrRemoteBranch(
     return null
 }
 
-@VisibleForTesting
-internal fun isWorktreeAlreadyOpen(openProjectBasePaths: Sequence<String?>, worktreePath: String): Boolean {
-    val canonicalTarget = canonicalizePath(worktreePath)
-    return openProjectBasePaths
-        .filterNotNull()
-        .any { canonicalizePath(it) == canonicalTarget }
-}
-
-@VisibleForTesting
-internal fun restoreFromMinimizedPreservingMaximized(extendedState: Int): Int {
-    return extendedState and Frame.ICONIFIED.inv()
-}
-
-@VisibleForTesting
-internal fun isCurrentWorktree(currentProjectBasePath: String?, worktreePath: String): Boolean {
-    val canonicalCurrent = currentProjectBasePath?.let { canonicalizePath(it) } ?: return false
-    return canonicalizePath(worktreePath) == canonicalCurrent
-}
-
-@VisibleForTesting
-internal fun isDeleteEnabled(isMain: Boolean, isCurrent: Boolean, isDeleting: Boolean): Boolean {
-    // Never allow deleting the main worktree, or the currently-open worktree.
-    return !isDeleting && !isMain && !isCurrent
-}
-
-@VisibleForTesting
-internal fun sortWorktreesForDisplay(
-    worktrees: List<WorktreeInfo>,
-    currentProjectBasePath: String?
-): List<WorktreeInfo> {
-    return worktrees.sortedWith(
-        compareByDescending<WorktreeInfo> { wt ->
-            isCurrentWorktree(currentProjectBasePath = currentProjectBasePath, worktreePath = wt.path)
-        }
-            // Pin main directly under current.
-            // Note: in practice, current+main should never both be true at once, but this makes ordering stable.
-            .thenByDescending { wt -> wt.isMain }
-            .thenBy { wt -> wt.branch ?: "" }
-            .thenBy { wt -> wt.path }
-    )
-}
-
 private fun listWorktreesInBackground(project: Project, repository: GitRepository): List<WorktreeInfo>? {
     val gitWorktreeService = GitWorktreeService.getInstance(project)
 
@@ -995,506 +894,5 @@ private fun listWorktreesInBackground(project: Project, repository: GitRepositor
         throw e
     } catch (_: Exception) {
         null
-    }
-}
-
-private fun openOrFocusWorktree(
-    currentProject: Project,
-    worktreePath: String
-) {
-    val alreadyOpenProject = ProjectManager.getInstance().openProjects.firstOrNull { p ->
-        val base = p.basePath ?: return@firstOrNull false
-        canonicalizePath(base) == canonicalizePath(worktreePath)
-    }
-
-    ApplicationManager.getApplication().invokeLater {
-        runCatching {
-            if (alreadyOpenProject != null) {
-                // Prefer IDE focus APIs; fall back to raw frame-toFront.
-                val ideFrame = WindowManager.getInstance().getIdeFrame(alreadyOpenProject)
-                if (ideFrame != null) {
-                    IdeFocusManager.getInstance(alreadyOpenProject).requestFocus(ideFrame.component, true)
-                }
-
-                val frame = WindowManager.getInstance().getFrame(alreadyOpenProject)
-                if (frame != null) {
-                    // Only restore from minimized; do not clear maximized state.
-                    frame.extendedState = restoreFromMinimizedPreservingMaximized(frame.extendedState)
-                    frame.toFront()
-                    frame.requestFocus()
-                }
-            } else {
-                ProjectUtil.openOrImport(File(worktreePath).toPath(), currentProject, true)
-            }
-        }
-    }
-}
-/**
- * Pure UI composable for displaying the worktree list
- * No dependency on Project - can be previewed with mock data
- */
-@Composable
-private fun WorktreeListContent(
-    state: com.purringlabs.gitworktree.gitworktreemanager.viewmodel.WorktreeState,
-    currentProjectBasePath: String?,
-    onSearchQueryChange: (String) -> Unit,
-    onRefresh: () -> Unit,
-    onOpenWorktree: (WorktreeInfo) -> Unit,
-    onDeleteWorktree: (WorktreeInfo) -> Unit,
-    onCreateWorktreeRequest: () -> Unit,
-    onConfirmDelete: (WorktreeInfo) -> Boolean,
-    onShowContextMenu: (WorktreeInfo, Offset) -> Unit,
-    onMergeIntoBranch: (WorktreeInfo) -> Unit,
-    onPrune: () -> Unit,
-    onPullFromRemote: (WorktreeInfo) -> Unit,
-    onPushToRemote: (WorktreeInfo) -> Unit,
-    onOpenInTerminal: (WorktreeInfo) -> Unit,
-    onRevealInExplorer: (WorktreeInfo) -> Unit,
-    onCopyPath: (WorktreeInfo) -> Unit,
-    onCopyBranch: (WorktreeInfo) -> Unit,
-    onCopyCommit: (WorktreeInfo) -> Unit
-) {
-    val isBusy = state.isCreating ||
-        state.isScanning ||
-        state.isPruning ||
-        state.deletingWorktreePath != null ||
-        state.mergingSourceBranch != null ||
-        state.pushingBranch != null ||
-        state.pullingBranch != null
-    val statusText = when {
-        state.isScanning -> "Scanning ignored files..."
-        state.isCreating -> "Creating worktree..."
-        state.isPruning -> "Pruning worktrees..."
-        state.deletingWorktreePath != null -> "Deleting worktree..."
-        state.mergingSourceBranch != null && state.mergingTargetBranch != null -> "Merging ${state.mergingSourceBranch} into ${state.mergingTargetBranch}..."
-        state.pushingBranch != null -> "Pushing ${state.pushingBranch}..."
-        state.pullingBranch != null -> "Pulling ${state.pullingBranch}..."
-        else -> null
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        if (isBusy) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                SwingPanel(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp),
-                    factory = {
-                        JProgressBar().apply {
-                            isIndeterminate = true
-                            border = null
-                        }
-                    }
-                )
-                statusText?.let { Text(it) }
-            }
-        }
-
-        // Create button at the top
-        OutlinedButton(onClick = {
-            onCreateWorktreeRequest()
-        }, enabled = !state.isCreating && !state.isScanning && state.pushingBranch == null) {
-            Text("Create Worktree")
-        }
-
-        // Error message
-        state.error?.let { error ->
-            Text(
-                text = error,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-            )
-        }
-
-        // Search
-        val filteredWorktrees = remember(state.worktrees, state.searchQuery) {
-            val q = state.searchQuery.trim().lowercase()
-            if (q.isBlank()) return@remember state.worktrees
-
-            state.worktrees.filter { wt ->
-                val branch = wt.branch ?: ""
-                listOf(branch, wt.path, wt.commit).any { it.lowercase().contains(q) }
-            }
-        }
-
-        // Note: current-worktree detection is implemented via isCurrentWorktree(...)
-        // and kept as a pure function to make it easy to unit-test.
-
-        val searchBorder = if (isSystemInDarkTheme()) Color(0x33FFFFFF) else Color(0x22000000)
-        val searchBg = if (isSystemInDarkTheme()) Color(0x14FFFFFF) else Color(0x0A000000)
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            BasicTextField(
-                value = state.searchQuery,
-                onValueChange = onSearchQueryChange,
-                singleLine = true,
-                textStyle = TextStyle(color = if (isSystemInDarkTheme()) Color.White else Color.Black),
-                modifier = Modifier
-                    .weight(1f)
-                    .border(1.dp, searchBorder, RoundedCornerShape(6.dp))
-                    .background(searchBg, RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                decorationBox = { innerTextField ->
-                    Box {
-                        if (state.searchQuery.isBlank()) {
-                            Text(
-                                text = "Search worktrees…",
-                                fontWeight = FontWeight.Light
-                            )
-                        }
-                        innerTextField()
-                    }
-                }
-            )
-
-            OutlinedButton(
-                onClick = { onSearchQueryChange("") },
-                enabled = state.searchQuery.isNotBlank()
-            ) {
-                Text("Clear")
-            }
-
-            OutlinedButton(onClick = onRefresh, enabled = !isBusy) {
-                Text("Refresh")
-            }
-
-            OutlinedButton(onClick = onPrune, enabled = !isBusy) {
-                Text("Prune")
-            }
-        }
-
-        // Worktree list
-        // Sort so the currently-open worktree is always at the top, and the main worktree is pinned just under it.
-        val sortedWorktrees = remember(filteredWorktrees, currentProjectBasePath) {
-            sortWorktreesForDisplay(
-                worktrees = filteredWorktrees,
-                currentProjectBasePath = currentProjectBasePath
-            )
-        }
-
-        if (state.isLoading) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Loading worktrees...")
-            }
-        } else if (state.worktrees.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("No worktrees found")
-            }
-        } else if (filteredWorktrees.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("No matches")
-            }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                items(sortedWorktrees) { worktree ->
-                    val isCurrent = isCurrentWorktree(
-                        currentProjectBasePath = currentProjectBasePath,
-                        worktreePath = worktree.path
-                    )
-
-                    WorktreeItem(
-                        worktree = worktree,
-                        isCurrent = isCurrent,
-                        isDeleting = state.deletingWorktreePath == worktree.path,
-                        onOpen = { onOpenWorktree(worktree) },
-                        onDelete = {
-                            if (onConfirmDelete(worktree)) {
-                                onDeleteWorktree(worktree)
-                            }
-                        },
-                        onContextMenu = { offset -> onShowContextMenu(worktree, offset) },
-                        onOpenInTerminal = { onOpenInTerminal(worktree) },
-                        onRevealInExplorer = { onRevealInExplorer(worktree) }
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Pure UI composable for displaying a single worktree item
- * No dependency on Project - can be previewed with mock data
- */
-@OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
-@Composable
-private fun WorktreeItem(
-    worktree: WorktreeInfo,
-    isCurrent: Boolean,
-    isDeleting: Boolean,
-    onOpen: () -> Unit,
-    onDelete: () -> Unit,
-    onContextMenu: (Offset) -> Unit,
-    onOpenInTerminal: () -> Unit,
-    onRevealInExplorer: () -> Unit
-) {
-    var isHovered by remember { mutableStateOf(false) }
-
-    val currentBackground = when {
-        !isCurrent -> Color.Transparent
-        isSystemInDarkTheme() -> Color(0x162F80FF) // subtle blue tint
-        else -> Color(0x142F80FF)
-    }
-
-    val hoverBackground = when {
-        !isHovered -> Color.Transparent
-        isSystemInDarkTheme() -> Color(0x22FFFFFF)
-        else -> Color(0x14000000)
-    }
-
-    // If it's both current + hovered, blend by just preferring hover.
-    val rowBackground = if (isHovered) hoverBackground else currentBackground
-    val secondaryColor = if (isSystemInDarkTheme()) Color(0xFFB0B0B0) else Color(0xFF5C5C5C)
-    val branchLine = buildString {
-        append(worktree.branch ?: "detached HEAD")
-        append(" · ")
-        append(worktree.commit.take(8))
-    }
-    val pathDisplay = worktree.path.replace('\\', '/')
-
-    val rightClickModifier = Modifier.pointerInput(worktree) {
-        awaitPointerEventScope {
-            while (true) {
-                val event = awaitPointerEvent()
-                if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
-                    event.changes.forEach { it.consume() }
-                    val pos = event.changes.firstOrNull()?.position ?: Offset.Zero
-                    onContextMenu(pos)
-                }
-            }
-        }
-    }
-
-    Box(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = rightClickModifier
-                .then(
-                    Modifier
-                        .fillMaxWidth()
-                        .pointerMoveFilter(
-                            onEnter = {
-                                isHovered = true
-                                false
-                            },
-                            onExit = {
-                                isHovered = false
-                                false
-                            }
-                        )
-                        .pointerHoverIcon(PointerIcon(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)))
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onDoubleTap = { onOpen() }
-                            )
-                        }
-                        .background(rowBackground)
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
-                ),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.weight(0.26f).fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Box(
-                    modifier = Modifier.width(14.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isCurrent) {
-                        Text(text = "✓", fontWeight = FontWeight.Medium)
-                    }
-                }
-                Text(
-                    text = worktreeFolderName(worktree.path),
-                    fontWeight = if (worktree.isMain) FontWeight.Bold else FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).fillMaxWidth()
-                )
-            }
-
-            Text(
-                text = branchLine,
-                color = secondaryColor,
-                fontWeight = FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(0.30f).fillMaxWidth()
-            )
-
-            Text(
-                text = pathDisplay,
-                color = secondaryColor,
-                fontWeight = FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(0.36f).fillMaxWidth()
-            )
-
-            val deleteEnabled = isDeleteEnabled(isMain = worktree.isMain, isCurrent = isCurrent, isDeleting = isDeleting)
-            var isDeleteHovered by remember { mutableStateOf(false) }
-
-            if (isHovered) {
-                fun Modifier.actionCursor(enabled: Boolean): Modifier {
-                    return pointerHoverIcon(
-                        if (enabled) PointerIcon(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)) else PointerIcon.Default
-                    )
-                }
-
-                @Composable
-                fun IdeaIcon(icon: Icon) {
-                    SwingPanel(
-                        modifier = Modifier.size(16.dp),
-                        factory = {
-                            JLabel().apply {
-                                isOpaque = false
-                                this.icon = icon
-                            }
-                        }
-                    )
-                }
-
-                @Composable
-                fun IconActionButton(
-                    icon: Icon,
-                    tooltip: String,
-                    enabled: Boolean = true,
-                    onClick: () -> Unit
-                ) {
-                    var hovered by remember { mutableStateOf(false) }
-                    val bg = if (hovered) {
-                        if (isSystemInDarkTheme()) Color(0x22FFFFFF) else Color(0x14000000)
-                    } else Color.Transparent
-
-                    Box(
-                        modifier = Modifier
-                            .actionCursor(enabled)
-                            .pointerMoveFilter(
-                                onEnter = {
-                                    hovered = true
-                                    false
-                                },
-                                onExit = {
-                                    hovered = false
-                                    false
-                                }
-                            )
-                            .pointerInput(enabled) {
-                                if (enabled) detectTapGestures(onTap = { onClick() })
-                            }
-                            .size(28.dp)
-                            .background(bg, RoundedCornerShape(6.dp))
-                            .padding(6.dp)
-                    ) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            IdeaIcon(icon = icon)
-                        }
-
-                        if (hovered) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .offset(y = (-40).dp)
-                                    .background(
-                                        if (isSystemInDarkTheme()) Color(0xEE2B2B2B) else Color(0xEEFFFFFF),
-                                        RoundedCornerShape(6.dp)
-                                    )
-                                    .border(
-                                        1.dp,
-                                        if (isSystemInDarkTheme()) Color(0x55FFFFFF) else Color(0x22000000),
-                                        RoundedCornerShape(6.dp)
-                                    )
-                                    .padding(horizontal = 8.dp, vertical = 6.dp)
-                            ) {
-                                Text(text = tooltip, fontWeight = FontWeight.Light)
-                            }
-                        }
-                    }
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconActionButton(
-                        icon = AllIcons.Nodes.Console,
-                        tooltip = "Open in Terminal",
-                        onClick = onOpenInTerminal
-                    )
-                    IconActionButton(
-                        icon = AllIcons.Nodes.Folder,
-                        tooltip = "Reveal in Explorer",
-                        onClick = onRevealInExplorer
-                    )
-
-                    Box(
-                        modifier = Modifier.pointerMoveFilter(
-                            onEnter = {
-                                isDeleteHovered = true
-                                false
-                            },
-                            onExit = {
-                                isDeleteHovered = false
-                                false
-                            }
-                        )
-                    ) {
-                        IconActionButton(
-                            icon = AllIcons.General.Remove,
-                            tooltip = "Delete worktree",
-                            enabled = deleteEnabled,
-                            onClick = onDelete
-                        )
-
-                        if (!deleteEnabled && isDeleteHovered) {
-                            val tooltipText = when {
-                                worktree.isMain -> "Main working tree can’t be removed."
-                                isCurrent -> "This worktree is currently open. Close it (or delete from another window) to remove it."
-                                else -> null
-                            }
-
-                            if (tooltipText != null) {
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .offset(y = (-40).dp)
-                                        .background(
-                                            if (isSystemInDarkTheme()) Color(0xEE2B2B2B) else Color(0xEEFFFFFF),
-                                            RoundedCornerShape(6.dp)
-                                        )
-                                        .border(1.dp, if (isSystemInDarkTheme()) Color(0x55FFFFFF) else Color(0x22000000), RoundedCornerShape(6.dp))
-                                        .padding(horizontal = 8.dp, vertical = 6.dp)
-                                ) {
-                                    Text(text = tooltipText, fontWeight = FontWeight.Light)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
     }
 }
