@@ -34,3 +34,16 @@ jobs:
             test \
             verifyPluginStructure \
             --stacktrace
+
+      # Package a installable plugin zip (Install Plugin from Disk in the IDE).
+      # Runs on every PR and on every push to master after merge.
+      - name: Build plugin zip
+        run: ./gradlew --no-daemon buildPlugin --stacktrace
+
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: git-worktree-manager-${{ github.sha }}
+          path: build/distributions/*.zip
+          if-no-files-found: error
+          retention-days: 30

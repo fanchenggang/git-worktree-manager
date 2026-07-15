@@ -29,6 +29,14 @@ Read more about the benefits: [Increase Productivity with Git Worktrees](https:/
 
 ## Installation
 
+### From CI artifact (after merge to master)
+
+After code is merged to `master`, GitHub Actions builds an installable zip:
+
+1. Open **Actions** → latest green **CI** run on `master`
+2. Download the **Artifacts** zip (`git-worktree-manager-<sha>`)
+3. In the IDE: **Settings → Plugins → ⚙️ → Install Plugin from Disk…**
+
 ### From Source
 
 1. Clone this repository
@@ -36,8 +44,8 @@ Read more about the benefits: [Increase Productivity with Git Worktrees](https:/
    - `https_proxy=http://127.0.0.1:7897`
    - `http_proxy=http://127.0.0.1:7897`
    - `all_proxy=socks5://127.0.0.1:7897`
-2. Run `./gradlew build`
-3. Install the plugin from `build/distributions/git-worktree-manager-*.zip`
+3. Run `./gradlew buildPlugin` (or `./gradlew build`)
+4. Install the plugin from `build/distributions/git-worktree-manager-*.zip`
 
 set JAVA_HOME=D:\jdk\jdk-21.0.7
 $env:JAVA_HOME = "D:\jdk\jdk-21.0.7"    powershell
