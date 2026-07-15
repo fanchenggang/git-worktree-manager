@@ -6,6 +6,7 @@ import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
+import com.purringlabs.gitworktree.gitworktreemanager.MyMessageBundle
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.datatransfer.StringSelection
@@ -40,7 +41,7 @@ class ErrorDetailsDialog(
             appendLine(summary.trim())
             if (actions.isNotEmpty()) {
                 appendLine()
-                appendLine("What you can do:")
+                appendLine(MyMessageBundle.message("error.whatYouCanDo"))
                 actions.forEach { appendLine("• ${it.trim()}") }
             }
         }
@@ -64,7 +65,7 @@ class ErrorDetailsDialog(
     }
 
     override fun createActions(): Array<Action> {
-        val copyAction = object : DialogWrapperAction("Copy details") {
+        val copyAction = object : DialogWrapperAction(MyMessageBundle.message("action.copyDetails")) {
             override fun doAction(e: java.awt.event.ActionEvent?) {
                 val text = (copyText ?: detailsText).orEmpty().trim()
                 if (text.isNotBlank()) {

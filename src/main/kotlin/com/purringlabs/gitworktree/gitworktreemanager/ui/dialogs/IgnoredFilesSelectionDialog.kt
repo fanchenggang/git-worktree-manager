@@ -4,6 +4,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.table.JBTable
+import com.purringlabs.gitworktree.gitworktreemanager.MyMessageBundle
 import com.purringlabs.gitworktree.gitworktreemanager.models.IgnoredFileInfo
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -25,7 +26,7 @@ class IgnoredFilesSelectionDialog(
     private val table = JBTable(tableModel)
 
     init {
-        title = "Select Ignored Files to Copy"
+        title = MyMessageBundle.message("dialog.ignoredFiles.title")
         init()
     }
 
@@ -58,12 +59,12 @@ class IgnoredFilesSelectionDialog(
 
         // Buttons panel
         val buttonsPanel = JPanel()
-        val selectAllButton = JButton("Select All").apply {
+        val selectAllButton = JButton(MyMessageBundle.message("action.selectAll")).apply {
             addActionListener {
                 tableModel.selectAll(true)
             }
         }
-        val deselectAllButton = JButton("Deselect All").apply {
+        val deselectAllButton = JButton(MyMessageBundle.message("action.deselectAll")).apply {
             addActionListener {
                 tableModel.selectAll(false)
             }
@@ -89,7 +90,12 @@ class IgnoredFilesSelectionDialog(
         private val files: MutableList<IgnoredFileInfo>
     ) : AbstractTableModel() {
 
-        private val columnNames = arrayOf("Select", "File Path", "Type", "Size")
+        private val columnNames = arrayOf(
+            MyMessageBundle.message("dialog.ignoredFiles.col.select"),
+            MyMessageBundle.message("dialog.ignoredFiles.col.path"),
+            MyMessageBundle.message("dialog.ignoredFiles.col.type"),
+            MyMessageBundle.message("dialog.ignoredFiles.col.size")
+        )
 
         override fun getRowCount(): Int = files.size
 
@@ -109,7 +115,11 @@ class IgnoredFilesSelectionDialog(
             return when (columnIndex) {
                 0 -> file.selected
                 1 -> file.relativePath
-                2 -> if (file.type == IgnoredFileInfo.FileType.DIRECTORY) "Directory" else "File"
+                2 -> if (file.type == IgnoredFileInfo.FileType.DIRECTORY) {
+                    MyMessageBundle.message("dialog.ignoredFiles.type.directory")
+                } else {
+                    MyMessageBundle.message("dialog.ignoredFiles.type.file")
+                }
                 3 -> file.displaySize()
                 else -> ""
             }

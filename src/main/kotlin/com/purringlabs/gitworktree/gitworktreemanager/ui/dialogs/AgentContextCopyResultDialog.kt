@@ -4,6 +4,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
+import com.purringlabs.gitworktree.gitworktreemanager.MyMessageBundle
 import com.purringlabs.gitworktree.gitworktreemanager.models.AgentContextCopyResult
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -16,30 +17,37 @@ class AgentContextCopyResultDialog(
     private val result: AgentContextCopyResult
 ) : DialogWrapper(project) {
     init {
-        title = "Agent Context Copy Results"
+        title = MyMessageBundle.message("dialog.agentContext.resultsTitle")
         init()
     }
 
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(BorderLayout(0, 10))
         panel.add(
-            JBLabel("Copied ${result.copiedCount} item(s), skipped ${result.skippedCount}, failed ${result.failureCount}."),
+            JBLabel(
+                MyMessageBundle.message(
+                    "dialog.agentContext.summary",
+                    result.copiedCount,
+                    result.skippedCount,
+                    result.failureCount
+                )
+            ),
             BorderLayout.NORTH
         )
 
         val details = buildString {
             if (result.copied.isNotEmpty()) {
-                appendLine("Copied:")
+                appendLine(MyMessageBundle.message("dialog.agentContext.copiedHeader"))
                 result.copied.forEach { appendLine("- $it") }
                 appendLine()
             }
             if (result.skipped.isNotEmpty()) {
-                appendLine("Skipped:")
+                appendLine(MyMessageBundle.message("dialog.agentContext.skippedHeader"))
                 result.skipped.forEach { (item, reason) -> appendLine("- $item: $reason") }
                 appendLine()
             }
             if (result.failed.isNotEmpty()) {
-                appendLine("Failed:")
+                appendLine(MyMessageBundle.message("dialog.agentContext.failedHeader"))
                 result.failed.forEach { (item, reason) -> appendLine("- $item: $reason") }
             }
         }

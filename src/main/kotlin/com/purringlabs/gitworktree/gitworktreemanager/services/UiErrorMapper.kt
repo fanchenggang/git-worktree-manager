@@ -1,5 +1,6 @@
 package com.purringlabs.gitworktree.gitworktreemanager.services
 
+import com.purringlabs.gitworktree.gitworktreemanager.MyMessageBundle
 import com.purringlabs.gitworktree.gitworktreemanager.exceptions.NoRepositoryException
 import com.purringlabs.gitworktree.gitworktreemanager.exceptions.WorktreeOperationException
 
@@ -18,7 +19,7 @@ object UiErrorMapper {
 
     fun map(throwable: Throwable, operation: String? = null): UiError {
         val root = rootCause(throwable)
-        val msg = (root.message ?: throwable.message ?: "Unknown error").trim()
+        val msg = (root.message ?: throwable.message ?: MyMessageBundle.message("error.unknown")).trim()
 
         // Special-case: process start failure due to missing working directory
         if (isMissingWorkingDirectory(msg)) {
@@ -32,12 +33,12 @@ object UiErrorMapper {
             )
 
             return UiError(
-                title = "Git Worktree Manager — Project folder no longer exists",
-                summary = "Git couldn’t run because the repository folder is missing or was moved.",
+                title = MyMessageBundle.message("error.missingProjectFolder.title"),
+                summary = MyMessageBundle.message("error.missingProjectFolder.summary"),
                 actions = listOf(
-                    "Re-open the project from the correct folder (File → Open…)",
-                    "Remove the stale entry from Recent Projects, then open the real one again",
-                    "If the folder was deleted by mistake, restore it and reopen the project"
+                    MyMessageBundle.message("error.missingProjectFolder.action1"),
+                    MyMessageBundle.message("error.missingProjectFolder.action2"),
+                    MyMessageBundle.message("error.missingProjectFolder.action3")
                 ),
                 details = details,
                 copyText = buildCopyText(details)
@@ -47,12 +48,12 @@ object UiErrorMapper {
         if (isLockedWorktreeDelete(msg)) {
             val details = buildDetails(operation = operation, errorOutput = msg)
             return UiError(
-                title = "Git Worktree Manager — Worktree is locked",
-                summary = "This worktree is locked, so the plugin won’t delete it until it is unlocked.",
+                title = MyMessageBundle.message("error.lockedWorktree.title"),
+                summary = MyMessageBundle.message("error.lockedWorktree.summary"),
                 actions = listOf(
-                    "In the repo root, run: git worktree unlock <worktree-path>",
-                    "If the lock is intentional, keep it and do not delete this worktree",
-                    "After unlocking, refresh the list and retry deletion"
+                    MyMessageBundle.message("error.lockedWorktree.action1"),
+                    MyMessageBundle.message("error.lockedWorktree.action2"),
+                    MyMessageBundle.message("error.lockedWorktree.action3")
                 ),
                 details = details,
                 copyText = buildCopyText(details)
@@ -62,12 +63,12 @@ object UiErrorMapper {
         if (isPrunableWorktreeDelete(msg)) {
             val details = buildDetails(operation = operation, errorOutput = msg)
             return UiError(
-                title = "Git Worktree Manager — Worktree metadata is stale",
-                summary = "This worktree looks stale/broken, so it should be pruned before deletion.",
+                title = MyMessageBundle.message("error.prunableWorktree.title"),
+                summary = MyMessageBundle.message("error.prunableWorktree.summary"),
                 actions = listOf(
-                    "In the repo root, run: git worktree prune",
-                    "If the folder still exists afterward, delete the leftover worktree folder manually",
-                    "Then refresh the worktree list and retry branch cleanup if needed"
+                    MyMessageBundle.message("error.prunableWorktree.action1"),
+                    MyMessageBundle.message("error.prunableWorktree.action2"),
+                    MyMessageBundle.message("error.prunableWorktree.action3")
                 ),
                 details = details,
                 copyText = buildCopyText(details)
@@ -78,12 +79,12 @@ object UiErrorMapper {
             is NoRepositoryException -> {
                 val details = buildDetails(operation = operation, errorOutput = msg)
                 UiError(
-                    title = "Git Worktree Manager — No Git repository found",
-                    summary = "I couldn’t find a Git repository in this project, so I can’t manage worktrees.",
+                    title = MyMessageBundle.message("error.noRepository.title"),
+                    summary = MyMessageBundle.message("error.noRepository.summary"),
                     actions = listOf(
-                        "Open the project from a folder that contains a .git directory",
-                        "If this is a multi-module project, make sure the Git root is included in the IDE",
-                        "If you cloned the repo recently, try reopening the project"
+                        MyMessageBundle.message("error.noRepository.action1"),
+                        MyMessageBundle.message("error.noRepository.action2"),
+                        MyMessageBundle.message("error.noRepository.action3")
                     ),
                     details = details,
                     copyText = buildCopyText(details)
@@ -106,12 +107,12 @@ object UiErrorMapper {
                     )
 
                     return UiError(
-                        title = "Git Worktree Manager — Worktree metadata is missing",
-                        summary = "This worktree’s metadata looks broken (its .git file/folder is missing), so Git refused to remove it.",
+                        title = MyMessageBundle.message("error.metadataMissing.title"),
+                        summary = MyMessageBundle.message("error.metadataMissing.summary"),
                         actions = listOf(
-                            "In the repo root, run: git worktree prune",
-                            "If the folder still exists, delete the broken worktree folder manually, then prune again",
-                            "Then refresh the worktree list and retry deletion"
+                            MyMessageBundle.message("error.metadataMissing.action1"),
+                            MyMessageBundle.message("error.metadataMissing.action2"),
+                            MyMessageBundle.message("error.metadataMissing.action3")
                         ),
                         details = details,
                         copyText = buildCopyText(details)
@@ -127,12 +128,12 @@ object UiErrorMapper {
                 )
 
                 UiError(
-                    title = "Git Worktree Manager — Git command failed",
-                    summary = "Git ran but returned an error while trying to complete the operation.",
+                    title = MyMessageBundle.message("error.gitFailed.title"),
+                    summary = MyMessageBundle.message("error.gitFailed.summary"),
                     actions = listOf(
-                        "Open the Terminal in that repo and run the command in Details",
-                        "Make sure you have permission to access the folder and the repo isn’t locked",
-                        "If this keeps happening, share the copied details in an issue"
+                        MyMessageBundle.message("error.gitFailed.action1"),
+                        MyMessageBundle.message("error.gitFailed.action2"),
+                        MyMessageBundle.message("error.gitFailed.action3")
                     ),
                     details = details,
                     copyText = buildCopyText(details)
@@ -142,11 +143,11 @@ object UiErrorMapper {
             else -> {
                 val details = buildDetails(operation = operation, errorOutput = msg)
                 UiError(
-                    title = "Git Worktree Manager — Unexpected error",
-                    summary = "Something went wrong while trying to complete the operation.",
+                    title = MyMessageBundle.message("error.unexpected.title"),
+                    summary = MyMessageBundle.message("error.unexpected.summary"),
                     actions = listOf(
-                        "Try again",
-                        "If it keeps happening, copy the details and share them in an issue"
+                        MyMessageBundle.message("error.unexpected.action1"),
+                        MyMessageBundle.message("error.unexpected.action2")
                     ),
                     details = details,
                     copyText = buildCopyText(details)
@@ -190,13 +191,15 @@ object UiErrorMapper {
         errorOutput: String? = null
     ): String {
         return buildString {
-            appendLine("Details (for debugging):")
-            if (!operation.isNullOrBlank()) appendLine("Operation: ${operation}")
-            if (!command.isNullOrBlank()) appendLine("Command: ${sanitizePaths(command)}")
-            if (!workingDirectory.isNullOrBlank()) appendLine("Working directory: ${sanitizePaths(workingDirectory)}")
-            if (exitCode != null) appendLine("Exit code: ${exitCode}")
+            appendLine(MyMessageBundle.message("error.detailsHeader"))
+            if (!operation.isNullOrBlank()) appendLine(MyMessageBundle.message("error.details.operation", operation))
+            if (!command.isNullOrBlank()) appendLine(MyMessageBundle.message("error.details.command", sanitizePaths(command)))
+            if (!workingDirectory.isNullOrBlank()) {
+                appendLine(MyMessageBundle.message("error.details.workingDirectory", sanitizePaths(workingDirectory)))
+            }
+            if (exitCode != null) appendLine(MyMessageBundle.message("error.details.exitCode", exitCode))
             if (!errorOutput.isNullOrBlank()) {
-                appendLine("Error:")
+                appendLine(MyMessageBundle.message("error.details.errorHeader"))
                 appendLine(sanitizePaths(errorOutput.trim()))
             }
         }.trim()
@@ -214,4 +217,3 @@ object UiErrorMapper {
             .replace(Regex("C:\\\\Users\\\\[^\\\\]+\\\\"), "C:\\Users\\<user>\\")
     }
 }
-
