@@ -180,6 +180,14 @@ class WorktreeViewModelProgressTest {
         ): Result<com.purringlabs.gitworktree.gitworktreemanager.models.CreateWorktreeResult> = createHandler()
 
         override suspend fun deleteWorktree(worktreePath: String, branchName: String?): Result<DeleteWorktreeResult> = deleteHandler()
+
+        override suspend fun mergeBranchInto(sourceBranch: String, targetWorktreePath: String): Result<Unit> = Result.success(Unit)
+
+        override suspend fun pullBranch(worktreePath: String, branchName: String): Result<Unit> = Result.success(Unit)
+
+        override suspend fun pushBranch(worktreePath: String, branchName: String): Result<Unit> = Result.success(Unit)
+
+        override suspend fun pruneWorktrees(): Result<Unit> = Result.success(Unit)
     }
 
     private class FakeIgnoredFilesScanner(
