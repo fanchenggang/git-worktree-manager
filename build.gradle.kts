@@ -1,7 +1,7 @@
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "2.1.20"
-    id("org.jetbrains.intellij.platform") version "2.10.2"
+    id("org.jetbrains.intellij.platform") version "2.10.4"
     id("org.jetbrains.kotlin.plugin.compose") version "2.1.20"
 }
 
@@ -47,6 +47,8 @@ intellijPlatform {
               <li>split tool-window UI into screen/controller modules</li>
               <li>move primary UI and error strings into message bundle</li>
               <li>Plugin Verifier in CI against recommended IDE builds</li>
+              <li>Simplified Chinese message bundle</li>
+              <li>unit tests for ignored-file parsing and file copy security</li>
             </ul>
 """.trimIndent()
     }

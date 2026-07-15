@@ -9,11 +9,9 @@ import git4idea.commands.GitLineHandler
 import git4idea.repo.GitRepositoryManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.VisibleForTesting
 import java.nio.file.Files
-import java.nio.file.Path
 import java.nio.file.Paths
-import kotlin.io.path.isDirectory
-import kotlin.io.path.isSymbolicLink
 
 /**
  * Service for detecting files and directories ignored by .gitignore
@@ -29,6 +27,20 @@ class IgnoredFilesService(private val project: Project) : IgnoredFilesScanner {
     companion object {
         fun getInstance(project: Project): IgnoredFilesService {
             return project.getService(IgnoredFilesService::class.java)
+        }
+
+        /**
+         * Pure porcelain-v2 ignored-path parser (testable without Git).
+         */
+        @VisibleForTesting
+        internal fun parseIgnoredFiles(output: List<String>): List<String> {
+            return output
+                .filter { it.startsWith("! ") }
+                .map { line ->
+                    // Format: "! <path>"
+                    line.substring(2).trim()
+                }
+                .filter { it.isNotEmpty() }
         }
     }
 
@@ -82,23 +94,5 @@ class IgnoredFilesService(private val project: Project) : IgnoredFilesScanner {
                 }
             }
         }
-    }
-
-    /**
-     * Parses the output of `git status --ignored --porcelain=v2`
-     *
-     * Lines starting with "! " indicate ignored files/directories
-     *
-     * @param output The git command output lines
-     * @return List of relative paths to ignored files
-     */
-    private fun parseIgnoredFiles(output: List<String>): List<String> {
-        return output
-            .filter { it.startsWith("! ") }
-            .map { line ->
-                // Format: "! <path>"
-                line.substring(2).trim()
-            }
-            .filter { it.isNotEmpty() }
     }
 }
