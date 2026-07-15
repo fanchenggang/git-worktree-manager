@@ -4,6 +4,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
+import com.purringlabs.gitworktree.gitworktreemanager.MyMessageBundle
 import com.purringlabs.gitworktree.gitworktreemanager.models.CopyResult
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -22,7 +23,7 @@ class CopyResultDialog(
 ) : DialogWrapper(project) {
 
     init {
-        title = "Copy Results"
+        title = MyMessageBundle.message("dialog.copyResults.title")
         init()
     }
 
@@ -31,9 +32,13 @@ class CopyResultDialog(
 
         // Summary label
         val summaryText = if (result.hasFailures) {
-            "Successfully copied ${result.successCount} file(s). ${result.failureCount} file(s) failed."
+            MyMessageBundle.message(
+                "dialog.copyResults.summaryPartial",
+                result.successCount,
+                result.failureCount
+            )
         } else {
-            "Successfully copied ${result.successCount} file(s)."
+            MyMessageBundle.message("dialog.copyResults.summaryOk", result.successCount)
         }
         val summaryLabel = JBLabel(summaryText)
         panel.add(summaryLabel, BorderLayout.NORTH)
@@ -41,11 +46,11 @@ class CopyResultDialog(
         // If there are failures, show them in a text area
         if (result.hasFailures) {
             val failuresText = buildString {
-                appendLine("Failed files:")
+                appendLine(MyMessageBundle.message("dialog.copyResults.failedHeader"))
                 appendLine()
                 result.failed.forEach { (path, error) ->
-                    appendLine("$path")
-                    appendLine("  Error: $error")
+                    appendLine(path)
+                    appendLine(MyMessageBundle.message("dialog.copyResults.errorLine", error))
                     appendLine()
                 }
             }

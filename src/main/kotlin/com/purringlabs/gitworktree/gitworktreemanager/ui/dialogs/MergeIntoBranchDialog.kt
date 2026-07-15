@@ -3,6 +3,7 @@ package com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBLabel
+import com.purringlabs.gitworktree.gitworktreemanager.MyMessageBundle
 import com.purringlabs.gitworktree.gitworktreemanager.models.WorktreeInfo
 import java.awt.BorderLayout
 import javax.swing.JComboBox
@@ -30,7 +31,8 @@ class MergeIntoBranchDialog(
                 isSelected: Boolean,
                 cellHasFocus: Boolean
             ): java.awt.Component {
-                val text = if (value != null) "${value.branch ?: "detached"} — ${value.path}" else ""
+                val detached = MyMessageBundle.message("worktree.detached")
+                val text = if (value != null) "${value.branch ?: detached} — ${value.path}" else ""
                 return JBLabel(text).apply {
                     if (list != null) {
                         background = if (isSelected) list.selectionBackground else list.background
@@ -42,13 +44,13 @@ class MergeIntoBranchDialog(
     }
 
     init {
-        title = "Merge \"$sourceBranch\" into..."
+        title = MyMessageBundle.message("dialog.merge.dialogTitle", sourceBranch)
         init()
     }
 
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(BorderLayout())
-        panel.add(JBLabel("Select target branch (worktree):"), BorderLayout.NORTH)
+        panel.add(JBLabel(MyMessageBundle.message("dialog.merge.selectTarget")), BorderLayout.NORTH)
         panel.add(comboBox, BorderLayout.CENTER)
         return panel
     }

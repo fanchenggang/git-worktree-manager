@@ -5,6 +5,7 @@ import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.table.JBTable
+import com.purringlabs.gitworktree.gitworktreemanager.MyMessageBundle
 import com.purringlabs.gitworktree.gitworktreemanager.models.AgentContextCopyOption
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -20,14 +21,14 @@ class AgentContextCopyDialog(
     private val table = JBTable(tableModel)
 
     init {
-        title = "Copy Coding Agent Context"
+        title = MyMessageBundle.message("dialog.agentContext.title")
         init()
     }
 
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(BorderLayout(0, 10))
         panel.add(
-            JBLabel("Select the Claude Code context to copy into the new worktree."),
+            JBLabel(MyMessageBundle.message("dialog.agentContext.prompt")),
             BorderLayout.NORTH
         )
 
@@ -52,17 +53,17 @@ class AgentContextCopyDialog(
     private class AgentContextCopyTableModel(
         private val options: MutableList<AgentContextCopyOption>
     ) : AbstractTableModel() {
-        private val columnNames = arrayOf("Copy", "Context", "Description")
+        private val columnNames = arrayOf(
+            MyMessageBundle.message("dialog.agentContext.col.copy"),
+            MyMessageBundle.message("dialog.agentContext.col.context"),
+            MyMessageBundle.message("dialog.agentContext.col.description")
+        )
 
         override fun getRowCount(): Int = options.size
         override fun getColumnCount(): Int = columnNames.size
         override fun getColumnName(column: Int): String = columnNames[column]
-
-        override fun getColumnClass(columnIndex: Int): Class<*> {
-            return if (columnIndex == 0) java.lang.Boolean::class.java else String::class.java
-        }
-
-        override fun isCellEditable(rowIndex: Int, columnIndex: Int): Boolean = columnIndex == 0
+        override fun getColumnClass(columnIndex: Int): Class<*> =
+            if (columnIndex == 0) java.lang.Boolean::class.java else String::class.java
 
         override fun getValueAt(rowIndex: Int, columnIndex: Int): Any {
             val option = options[rowIndex]
@@ -74,9 +75,11 @@ class AgentContextCopyDialog(
             }
         }
 
-        override fun setValueAt(value: Any?, rowIndex: Int, columnIndex: Int) {
-            if (columnIndex == 0 && value is Boolean) {
-                options[rowIndex] = options[rowIndex].copy(selected = value)
+        override fun isCellEditable(rowIndex: Int, columnIndex: Int): Boolean = columnIndex == 0
+
+        override fun setValueAt(aValue: Any?, rowIndex: Int, columnIndex: Int) {
+            if (columnIndex == 0 && aValue is Boolean) {
+                options[rowIndex] = options[rowIndex].copy(selected = aValue)
                 fireTableCellUpdated(rowIndex, columnIndex)
             }
         }

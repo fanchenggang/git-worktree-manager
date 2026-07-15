@@ -35,6 +35,9 @@ jobs:
             verifyPluginStructure \
             --stacktrace
 
+      - name: Plugin Verifier
+        run: ./gradlew --no-daemon verifyPlugin --stacktrace
+
       # Package a installable plugin zip (Install Plugin from Disk in the IDE).
       # Runs on every PR and on every push to master after merge.
       - name: Build plugin zip

@@ -1,13 +1,12 @@
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "2.1.20"
-    id("org.jetbrains.intellij.platform") version "2.10.2"
+    id("org.jetbrains.intellij.platform") version "2.10.4"
     id("org.jetbrains.kotlin.plugin.compose") version "2.1.20"
-    kotlin("plugin.serialization") version "2.1.20"
 }
 
 group = "com.purringlabs.gitworktree"
-version = "1.1.15"
+version = "1.1.16"
 
 repositories {
     mavenCentral()
@@ -19,12 +18,8 @@ repositories {
 // Read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html
 dependencies {
     intellijPlatform {
-//        local(file("C:\\Users\\M\\AppData\\Local\\Programs\\IntelliJ IDEA Ultimate"))  // 或你的实际安装路径
-
         intellijIdea(version="2025.2.4")
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
-
-        // Add plugin dependencies for compilation here:
 
         composeUI()
 
@@ -32,8 +27,6 @@ dependencies {
         bundledPlugin("Git4Idea")
         bundledPlugin("org.jetbrains.plugins.terminal")
     }
-
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
 
     testImplementation(kotlin("test"))
 }
@@ -47,9 +40,23 @@ intellijPlatform {
         changeNotes = """
             <b>What's new</b>
             <ul>
-              <li>sanitize branch names entered in create-worktree flow</li>
+              <li>remove embedded telemetry; no outbound New Relic traffic</li>
+              <li>require Compose so the tool window always installs</li>
+              <li>await ignored-file copy before showing create success</li>
+              <li>optional Claude Code context copy when creating a worktree</li>
+              <li>split tool-window UI into screen/controller modules</li>
+              <li>move primary UI and error strings into message bundle</li>
+              <li>Plugin Verifier in CI against recommended IDE builds</li>
+              <li>Simplified Chinese message bundle</li>
+              <li>unit tests for ignored-file parsing and file copy security</li>
             </ul>
 """.trimIndent()
+    }
+
+    pluginVerification {
+        ides {
+            recommended()
+        }
     }
 
     signing {

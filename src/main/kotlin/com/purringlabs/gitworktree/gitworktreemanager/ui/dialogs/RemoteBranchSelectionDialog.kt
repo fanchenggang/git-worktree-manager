@@ -5,6 +5,7 @@ import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
+import com.purringlabs.gitworktree.gitworktreemanager.MyMessageBundle
 import java.awt.BorderLayout
 import java.awt.Dimension
 import javax.swing.DefaultListModel
@@ -27,8 +28,8 @@ class RemoteBranchSelectionDialog(
     private val searchField = JTextField()
 
     init {
-        title = "Select Remote Branch"
-        setOKButtonText("Select")
+        title = MyMessageBundle.message("dialog.remoteBranch.title")
+        setOKButtonText(MyMessageBundle.message("action.select"))
         init()
         refreshList("")
         branchList.selectedIndex = if (listModel.size() > 0) 0 else -1
@@ -41,7 +42,7 @@ class RemoteBranchSelectionDialog(
         val panel = JPanel(BorderLayout(8, 8))
         panel.preferredSize = Dimension(480, 360)
 
-        searchField.toolTipText = "Filter remote branches"
+        searchField.toolTipText = MyMessageBundle.message("dialog.remoteBranch.filterTooltip")
         searchField.document.addDocumentListener(object : DocumentAdapter() {
             override fun textChanged(e: DocumentEvent) {
                 refreshList(searchField.text)
