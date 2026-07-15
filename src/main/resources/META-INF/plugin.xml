@@ -37,7 +37,7 @@
     <depends>com.intellij.modules.compose</depends>
     <depends optional="true" config-file="kotlin.xml">org.jetbrains.kotlin</depends>
     <depends>Git4Idea</depends>
-    <depends optional="true">org.jetbrains.plugins.terminal</depends>
+    <depends optional="true" config-file="terminal.xml">org.jetbrains.plugins.terminal</depends>
     <resource-bundle>messages.MyMessageBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">

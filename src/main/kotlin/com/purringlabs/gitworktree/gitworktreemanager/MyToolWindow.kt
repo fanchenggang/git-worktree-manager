@@ -57,7 +57,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.jewel.bridge.addComposeTab
-import org.jetbrains.plugins.terminal.TerminalView
+import org.jetbrains.plugins.terminal.TerminalToolWindowManager
 import java.awt.Point
 import java.awt.datatransfer.StringSelection
 import java.io.File
@@ -606,14 +606,26 @@ private fun WorktreeManagerContent(project: Project) {
             try {
                 val virtualFile = LocalFileSystem.getInstance().findFileByPath(worktree.path)
                 if (virtualFile != null) {
-                    TerminalView.getInstance(project).openTerminalIn(virtualFile)
+                    TerminalToolWindowManager.getInstance(project).openTerminalIn(virtualFile)
                 } else {
-                    Messages.showErrorDialog(project, "Could not find worktree directory.", "Error")
+                    Messages.showErrorDialog(
+                        project,
+                        MyMessageBundle.message("error.worktreeDirMissing"),
+                        MyMessageBundle.message("action.openInTerminal")
+                    )
                 }
             } catch (e: NoClassDefFoundError) {
-                Messages.showErrorDialog(project, "Terminal plugin is not available.", "Error")
+                Messages.showErrorDialog(
+                    project,
+                    MyMessageBundle.message("error.terminalUnavailable"),
+                    MyMessageBundle.message("action.openInTerminal")
+                )
             } catch (e: Exception) {
-                Messages.showErrorDialog(project, "Failed to open terminal: ${e.message}", "Error")
+                Messages.showErrorDialog(
+                    project,
+                    MyMessageBundle.message("error.openTerminalFailed", e.message ?: ""),
+                    MyMessageBundle.message("action.openInTerminal")
+                )
             }
         }
     }

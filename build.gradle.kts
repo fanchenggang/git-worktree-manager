@@ -44,8 +44,16 @@ intellijPlatform {
               <li>require Compose so the tool window always installs</li>
               <li>await ignored-file copy before showing create success</li>
               <li>optional Claude Code context copy when creating a worktree</li>
+              <li>split tool-window UI modules; Open action on each row</li>
+              <li>move primary UI strings into message bundle</li>
             </ul>
 """.trimIndent()
+    }
+
+    pluginVerification {
+        ides {
+            recommended()
+        }
     }
 
     signing {

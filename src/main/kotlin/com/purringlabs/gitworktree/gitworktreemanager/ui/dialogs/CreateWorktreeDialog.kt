@@ -6,6 +6,7 @@ import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
+import com.purringlabs.gitworktree.gitworktreemanager.MyMessageBundle
 import com.purringlabs.gitworktree.gitworktreemanager.util.BranchNameSanitizer
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
@@ -16,14 +17,16 @@ class CreateWorktreeDialog(project: Project) : DialogWrapper(project) {
 
     private val worktreeNameField = JBTextField()
     private val branchNameField = JBTextField()
-    private val createNewBranchCheckBox = JBCheckBox("Create new branch").apply { isSelected = true }
-    private val copyIgnoredFilesCheckBox = JBCheckBox("Copy ignored files (e.g. build caches, node_modules)")
-    private val copyAgentContextCheckBox = JBCheckBox("Copy Claude Code context (.claude / session history)")
+    private val createNewBranchCheckBox = JBCheckBox(MyMessageBundle.message("dialog.create.createNewBranch")).apply {
+        isSelected = true
+    }
+    private val copyIgnoredFilesCheckBox = JBCheckBox(MyMessageBundle.message("dialog.create.copyIgnoredFiles"))
+    private val copyAgentContextCheckBox = JBCheckBox(MyMessageBundle.message("dialog.create.copyAgentContext"))
 
     private var userEditedBranch = false
 
     init {
-        title = "Create New Worktree"
+        title = MyMessageBundle.message("dialog.create.title")
         
         // Auto-fill branch name based on worktree name if user hasn't manually edited the branch name
         worktreeNameField.addKeyListener(object : KeyAdapter() {
@@ -45,8 +48,8 @@ class CreateWorktreeDialog(project: Project) : DialogWrapper(project) {
 
     override fun createCenterPanel(): JComponent {
         return FormBuilder.createFormBuilder()
-            .addLabeledComponent(JBLabel("Worktree name:"), worktreeNameField, 1, false)
-            .addLabeledComponent(JBLabel("Branch name:"), branchNameField, 1, false)
+            .addLabeledComponent(JBLabel(MyMessageBundle.message("dialog.create.worktreeName")), worktreeNameField, 1, false)
+            .addLabeledComponent(JBLabel(MyMessageBundle.message("dialog.create.branchName")), branchNameField, 1, false)
             .addComponent(createNewBranchCheckBox, 1)
             .addComponent(copyIgnoredFilesCheckBox, 1)
             .addComponent(copyAgentContextCheckBox, 1)
