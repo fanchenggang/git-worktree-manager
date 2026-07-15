@@ -1,6 +1,0 @@
-- [x] `git worktree prune` 命令能够通过 `GitWorktreeService` 成功运行，并清理掉失效的工作树记录。
-- [x] "Prune"（清理）按钮在 UI 中的 "Refresh"（刷新）按钮旁可见，并且在操作完成后能正确刷新工作树列表。
-- [x] 右键点击工作树项时，能够显示扩展的上下文菜单（包含 "Merge...", "Pull...", "Open in Terminal", "Reveal in Explorer"）。
-- [x] "Pull from remote"（从远程拉取）操作能够在后台触发拉取过程，正确更新 UI 状态，并显示相应的成功或错误通知。
-- [x] "Open in Terminal"（在终端中打开）能够成功在正确的工作树路径下打开 IDE 的内置终端。
-- [x] "Reveal in Explorer"（在资源管理器中显示）能够成功在正确的工作树路径下打开操作系统的文件资源管理器。
