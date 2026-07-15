@@ -57,22 +57,23 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.WindowManager
-import com.purringlabs.gitworktree.gitworktreemanager.models.NoRepositoryCtaEvent
-import com.purringlabs.gitworktree.gitworktreemanager.models.OpenWorktreeEvent
 import com.purringlabs.gitworktree.gitworktreemanager.models.WorktreeInfo
 import com.purringlabs.gitworktree.gitworktreemanager.repository.WorktreeRepository
+import com.purringlabs.gitworktree.gitworktreemanager.services.ClaudeCodeContextService
 import com.purringlabs.gitworktree.gitworktreemanager.services.FileOperationsService
 import com.purringlabs.gitworktree.gitworktreemanager.services.GitWorktreeService
 import com.purringlabs.gitworktree.gitworktreemanager.services.IgnoredFilesService
 import com.purringlabs.gitworktree.gitworktreemanager.services.NoRepositoryUiHelper
-import com.purringlabs.gitworktree.gitworktreemanager.services.TelemetryService
-import com.purringlabs.gitworktree.gitworktreemanager.services.TelemetryServiceImpl
 import com.purringlabs.gitworktree.gitworktreemanager.services.UiErrorMapper
+import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.AgentContextCopyDialog
+import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.AgentContextCopyResultDialog
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.CopyResultDialog
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.ErrorDetailsDialog
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.IgnoredFilesSelectionDialog
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.MergeIntoBranchDialog
 import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.CreateWorktreeDialog
+import com.purringlabs.gitworktree.gitworktreemanager.ui.dialogs.RemoteBranchSelectionDialog
+import com.purringlabs.gitworktree.gitworktreemanager.util.BranchNameSanitizer
 import git4idea.repo.GitRepositoryManager
 import com.purringlabs.gitworktree.gitworktreemanager.viewmodel.WorktreeViewModel
 import git4idea.repo.GitRepository
@@ -92,7 +93,7 @@ import java.awt.Frame
 import java.awt.Point
 import java.awt.datatransfer.StringSelection
 import java.io.File
-import java.util.UUID
+import java.nio.file.Paths
 import javax.swing.Icon
 import javax.swing.JLabel
 import javax.swing.JProgressBar
@@ -248,14 +249,13 @@ private fun WorktreeManagerContent(project: Project) {
                     branchName = branch,
                     createNewBranch = createNewBranch,
                     selectedFiles = selectedFiles,
-                    onSuccess = { createResult ->
+                    onSuccess = { createResult, copyResult ->
                         ApplicationManager.getApplication().invokeLater {
                             // Open the worktree in a new window
                             ProjectUtil.openOrImport(File(createResult.path).toPath(), project, true)
 
-                            // Show copy results if available
-                            val copyResult = viewModel.state.copyResult
-                            if (copyResult != null && copyResult.successCount > 0) {
+                            // Show copy results if available (copy completed before this callback)
+                            if (copyResult != null && (copyResult.successCount > 0 || copyResult.failed.isNotEmpty())) {
                                 val resultDialog = CopyResultDialog(project, copyResult)
                                 resultDialog.show()
                             }
@@ -281,6 +281,76 @@ private fun WorktreeManagerContent(project: Project) {
                 // User cancelled selection - create worktree without copying files
                 onCreateWorktree(name, branch, createNewBranch)
             }
+        }
+    }
+
+    val onCreateWorktreeWithAgentContext: (String, String, Boolean) -> Unit = { name, branch, createNewBranch ->
+        uiScope.launch {
+            val repository = findValidRepository(project)
+            if (repository == null) {
+                withContext(Dispatchers.Main) {
+                    NoRepositoryUiHelper.showNoRepositoryDialog(project, "CREATE_WORKTREE")
+                }
+                return@launch
+            }
+
+            val gitWorktreeService = GitWorktreeService.getInstance(project)
+            val destinationPath = gitWorktreeService.getWorktreePath(repository, name)
+            val options = ClaudeCodeContextService.getInstance(project).detectCopyOptions(
+                sourceRepoPath = Paths.get(repository.root.path),
+                destinationWorktreePath = Paths.get(destinationPath)
+            )
+
+            if (options.isEmpty()) {
+                withContext(Dispatchers.Main) {
+                    Messages.showInfoMessage(
+                        project,
+                        "No Claude Code context found to copy.",
+                        "No Agent Context"
+                    )
+                }
+                onCreateWorktree(name, branch, createNewBranch)
+                return@launch
+            }
+
+            val selectedOptions = withContext(Dispatchers.Main) {
+                val dialog = AgentContextCopyDialog(project, options)
+                if (dialog.showAndGet()) dialog.selectedOptions() else null
+            }
+
+            if (selectedOptions == null) {
+                onCreateWorktree(name, branch, createNewBranch)
+                return@launch
+            }
+
+            viewModel.createWorktreeWithAgentContext(
+                worktreeName = name,
+                branchName = branch,
+                createNewBranch = createNewBranch,
+                selectedOptions = selectedOptions,
+                onSuccess = { createResult, copyResult ->
+                    ApplicationManager.getApplication().invokeLater {
+                        ProjectUtil.openOrImport(File(createResult.path).toPath(), project, true)
+                        if (copyResult != null && (copyResult.copiedCount > 0 || copyResult.failureCount > 0 || copyResult.skippedCount > 0)) {
+                            AgentContextCopyResultDialog(project, copyResult).show()
+                        }
+                        Messages.showInfoMessage(
+                            project,
+                            if (createResult.created) {
+                                "Worktree created and opened in new window!"
+                            } else {
+                                "Worktree already exists — opened existing worktree in new window."
+                            },
+                            "Success"
+                        )
+                    }
+                },
+                onError = { error ->
+                    ApplicationManager.getApplication().invokeLater {
+                        showOperationError(project, error, operation = "CREATE_WORKTREE")
+                    }
+                }
+            )
         }
     }
 
@@ -320,7 +390,7 @@ private fun WorktreeManagerContent(project: Project) {
                         when (choice) {
                             0 -> {
                                 if (existingWorktree != null) {
-                                    openOrFocusWorktree(project, existingWorktree.path, TelemetryServiceImpl.getInstance())
+                                    openOrFocusWorktree(project, existingWorktree.path)
                                 } else {
                                     Messages.showErrorDialog(
                                         project,
@@ -694,8 +764,7 @@ private fun WorktreeManagerContent(project: Project) {
             if (repository == null) {
                 NoRepositoryUiHelper.showNoRepositoryDialog(
                     project = project,
-                    attemptedOperation = "LIST_WORKTREES",
-                    telemetry = TelemetryServiceImpl.getInstance()
+                    attemptedOperation = "LIST_WORKTREES"
                 )
                 return@WorktreeListContent
             }
@@ -706,8 +775,7 @@ private fun WorktreeManagerContent(project: Project) {
             if (repository == null) {
                 NoRepositoryUiHelper.showNoRepositoryDialog(
                     project = project,
-                    attemptedOperation = "PRUNE_WORKTREES",
-                    telemetry = TelemetryServiceImpl.getInstance()
+                    attemptedOperation = "PRUNE_WORKTREES"
                 )
                 return@WorktreeListContent
             }
@@ -725,7 +793,7 @@ private fun WorktreeManagerContent(project: Project) {
             )
         },
         onOpenWorktree = { worktree ->
-            openOrFocusWorktree(project, worktree.path, TelemetryServiceImpl.getInstance())
+            openOrFocusWorktree(project, worktree.path)
         },
         onShowContextMenu = onShowContextMenu,
         onCreateWorktreeRequest = {
@@ -733,8 +801,7 @@ private fun WorktreeManagerContent(project: Project) {
             if (repository == null) {
                 NoRepositoryUiHelper.showNoRepositoryDialog(
                     project = project,
-                    attemptedOperation = "CREATE_WORKTREE",
-                    telemetry = TelemetryServiceImpl.getInstance()
+                    attemptedOperation = "CREATE_WORKTREE"
                 )
                 return@WorktreeListContent
             }
@@ -745,37 +812,33 @@ private fun WorktreeManagerContent(project: Project) {
                 val rawBranchName = dialog.getBranchName()
                 val createNewBranch = dialog.shouldCreateNewBranch()
                 val copyIgnoredFiles = dialog.shouldCopyIgnoredFiles()
+                val copyAgentContext = dialog.shouldCopyAgentContext()
 
                 if (rawName.isNotBlank() && rawBranchName.isNotBlank()) {
                     val worktreeName = onValidateWorktreeName(rawName)
                     if (!worktreeName.isNullOrBlank()) {
-                        val branchName = if (createNewBranch) {
-                            onValidateBranchName(rawBranchName)
+                        val resolved = if (createNewBranch) {
+                            onValidateBranchName(rawBranchName)?.let { ResolvedBranch(it, createNewBranch = true) }
                         } else {
-                            val candidate = sanitizeBranchName(rawBranchName)
-                            if (candidate.isBlank()) {
-                                Messages.showErrorDialog(
-                                    project,
-                                    "Branch name is invalid.",
-                                    "Invalid Branch Name"
-                                )
-                                null
-                            } else if (repository.branches.localBranches.any { it.name == candidate }) {
-                                candidate
-                            } else {
-                                Messages.showErrorDialog(
-                                    project,
-                                    "Local branch '$candidate' does not exist. Enable 'Create new branch' or enter an existing branch name.",
-                                    "Branch Not Found"
-                                )
-                                null
-                            }
+                            resolveExistingOrRemoteBranch(project, repository, rawBranchName)
                         }
-                        if (!branchName.isNullOrBlank()) {
-                            if (copyIgnoredFiles) {
-                                onCreateWorktreeWithIgnoredFiles(worktreeName, branchName, createNewBranch)
-                            } else {
-                                onCreateWorktree(worktreeName, branchName, createNewBranch)
+                        if (resolved != null) {
+                            when {
+                                copyIgnoredFiles -> onCreateWorktreeWithIgnoredFiles(
+                                    worktreeName,
+                                    resolved.name,
+                                    resolved.createNewBranch
+                                )
+                                copyAgentContext -> onCreateWorktreeWithAgentContext(
+                                    worktreeName,
+                                    resolved.name,
+                                    resolved.createNewBranch
+                                )
+                                else -> onCreateWorktree(
+                                    worktreeName,
+                                    resolved.name,
+                                    resolved.createNewBranch
+                                )
                             }
                         }
                     }
@@ -818,15 +881,60 @@ internal fun canonicalizePath(path: String): String = FileUtil.toCanonicalPath(p
 private fun worktreeFolderName(path: String): String = File(path).name
 
 @VisibleForTesting
-internal fun sanitizeBranchName(input: String): String {
-    return input
-        .trim()
-        .lowercase()
-        .replace(Regex("\\s+"), "-")
-        .replace(Regex("[^a-z0-9._/-]"), "-")
-        .replace(Regex("/+"), "/")
-        .replace(Regex("-+"), "-")
-        .replace(Regex("(^[-./]+|[-./]+$)"), "")
+internal fun sanitizeBranchName(input: String): String = BranchNameSanitizer.sanitize(input)
+
+private data class ResolvedBranch(val name: String, val createNewBranch: Boolean)
+
+/**
+ * Resolve an existing local branch, or let the user pick a remote branch when the local name is missing.
+ * Remote selections return createNewBranch=true so GitWorktreeService can create a local tracking branch.
+ */
+private fun resolveExistingOrRemoteBranch(
+    project: Project,
+    repository: GitRepository,
+    rawBranchName: String
+): ResolvedBranch? {
+    val candidate = sanitizeBranchName(rawBranchName)
+    if (candidate.isBlank()) {
+        Messages.showErrorDialog(
+            project,
+            "Branch name is invalid.",
+            "Invalid Branch Name"
+        )
+        return null
+    }
+
+    if (repository.branches.localBranches.any { it.name == candidate }) {
+        return ResolvedBranch(candidate, createNewBranch = false)
+    }
+
+    val remoteBranches = repository.branches.remoteBranches.map { it.name }.sorted()
+    val matchingRemotes = remoteBranches.filter {
+        it == candidate || it.endsWith("/$candidate") || it.substringAfter('/') == candidate
+    }
+
+    if (matchingRemotes.size == 1) {
+        return ResolvedBranch(matchingRemotes.first(), createNewBranch = true)
+    }
+
+    if (remoteBranches.isNotEmpty()) {
+        val dialog = RemoteBranchSelectionDialog(
+            project,
+            if (matchingRemotes.isNotEmpty()) matchingRemotes else remoteBranches
+        )
+        if (dialog.showAndGet()) {
+            val selected = dialog.selectedBranch ?: return null
+            return ResolvedBranch(selected, createNewBranch = true)
+        }
+        return null
+    }
+
+    Messages.showErrorDialog(
+        project,
+        "Local branch '$candidate' does not exist. Enable 'Create new branch' or enter an existing branch name.",
+        "Branch Not Found"
+    )
+    return null
 }
 
 @VisibleForTesting
@@ -892,27 +1000,15 @@ private fun listWorktreesInBackground(project: Project, repository: GitRepositor
 
 private fun openOrFocusWorktree(
     currentProject: Project,
-    worktreePath: String,
-    telemetryService: TelemetryService
+    worktreePath: String
 ) {
-    val operationId = UUID.randomUUID().toString()
-    val startTime = System.currentTimeMillis()
-
     val alreadyOpenProject = ProjectManager.getInstance().openProjects.firstOrNull { p ->
         val base = p.basePath ?: return@firstOrNull false
         canonicalizePath(base) == canonicalizePath(worktreePath)
     }
 
-    val alreadyOpen = isWorktreeAlreadyOpen(
-        openProjectBasePaths = ProjectManager.getInstance().openProjects.asSequence().map { it.basePath },
-        worktreePath = worktreePath
-    )
-
-    // Note: invokeLater schedules execution on the EDT. Record telemetry *inside* the EDT action
-    // so success/duration reflect the actual work, not just scheduling.
     ApplicationManager.getApplication().invokeLater {
-        val execStart = System.currentTimeMillis()
-        val result = runCatching {
+        runCatching {
             if (alreadyOpenProject != null) {
                 // Prefer IDE focus APIs; fall back to raw frame-toFront.
                 val ideFrame = WindowManager.getInstance().getIdeFrame(alreadyOpenProject)
@@ -931,18 +1027,6 @@ private fun openOrFocusWorktree(
                 ProjectUtil.openOrImport(File(worktreePath).toPath(), currentProject, true)
             }
         }
-
-        telemetryService.recordOperation(
-            OpenWorktreeEvent(
-                operationId = operationId,
-                startTime = startTime,
-                durationMs = System.currentTimeMillis() - execStart,
-                success = result.isSuccess,
-                context = telemetryService.getContext(),
-                worktreePath = worktreePath,
-                alreadyOpen = alreadyOpen
-            )
-        )
     }
 }
 /**

@@ -3,19 +3,12 @@ package com.purringlabs.gitworktree.gitworktreemanager.services
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.wm.ToolWindowManager
-import com.purringlabs.gitworktree.gitworktreemanager.models.NoRepositoryCtaEvent
-import java.util.UUID
 
 object NoRepositoryUiHelper {
 
-    private const val CTA_OPEN_GIT = "open_git_tool_window"
-    private const val CTA_REFRESH = "refresh_repositories"
-    private const val CTA_HOWTO = "how_to_fix"
-
     fun showNoRepositoryDialog(
         project: Project,
-        attemptedOperation: String,
-        telemetry: TelemetryService
+        @Suppress("UNUSED_PARAMETER") attemptedOperation: String
     ) {
         val choice = Messages.showDialog(
             project,
@@ -29,25 +22,6 @@ object NoRepositoryUiHelper {
             Messages.getWarningIcon()
         )
 
-        val cta = when (choice) {
-            0 -> CTA_OPEN_GIT
-            1 -> CTA_REFRESH
-            2 -> CTA_HOWTO
-            else -> return
-        }
-
-        telemetry.recordOperation(
-            NoRepositoryCtaEvent(
-                operationId = UUID.randomUUID().toString(),
-                startTime = System.currentTimeMillis(),
-                durationMs = 0,
-                success = true,
-                context = telemetry.getContext(),
-                attemptedOperation = attemptedOperation,
-                cta = cta
-            )
-        )
-
         when (choice) {
             0 -> {
                 val twm = ToolWindowManager.getInstance(project)
@@ -57,7 +31,6 @@ object NoRepositoryUiHelper {
 
             1 -> {
                 // Best-effort: repository refresh. The UI will re-attempt once the user clicks again.
-                // `update()` is available on the GitRepository; the manager will pick up changes.
                 git4idea.repo.GitRepositoryManager.getInstance(project).repositories.forEach { it.update() }
             }
 

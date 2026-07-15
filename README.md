@@ -4,10 +4,11 @@ A powerful IntelliJ IDEA/Android Studio plugin that simplifies Git worktree mana
 
 ## Features
 
-- **List Worktrees**: View all worktrees in your repository with their branch names, paths, and commit information
-- **Create Worktrees**: Create new worktrees with a simple dialog interface (new branch or existing local branch)
+- **Create Worktrees**: Create new worktrees with a simple dialog interface (new branch, existing local branch, or remote branch)
 - **Copy Ignored Files**: Optionally copy gitignored files (build artifacts, dependencies, etc.) to new worktrees
+- **Copy Claude Code Context**: Optionally copy `.claude` project context / session history into new worktrees
 - **Push to Remote**: Push a worktree branch to origin with one click
+- **Merge / Pull / Prune**: Merge into another worktree, pull/push, and prune stale worktrees from the tool window
 - **Copy Actions**: Quickly copy worktree path/branch/commit to clipboard
 - **Open in Terminal**: Open a worktree directory in the IDE terminal (requires the Terminal plugin)
 - **Reveal in Explorer**: Reveal a worktree directory in the OS file manager
@@ -72,8 +73,9 @@ https://plugins.jetbrains.com/plugin/29905-git-worktree-manager?noRedirect=true
    - **Branch name**: e.g., "feature/auth"
    - **Create new branch**:
      - **Enabled**: create and checkout a new local branch
-     - **Disabled**: use an existing local branch
+     - **Disabled**: use an existing local branch (or pick a remote branch if the local name is missing)
    - **Copy ignored files** (optional): scan `.gitignore` and let you select files to copy
+   - **Copy Claude Code context** (optional): copy `.claude` project context / session history when present
 3. The plugin will:
    - Create the worktree in the parent directory (e.g., `../myproject-feature-auth`)
    - Create or reuse the branch based on the selected mode

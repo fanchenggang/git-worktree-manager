@@ -6,6 +6,7 @@ import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
+import com.purringlabs.gitworktree.gitworktreemanager.util.BranchNameSanitizer
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import javax.swing.JComponent
@@ -17,6 +18,7 @@ class CreateWorktreeDialog(project: Project) : DialogWrapper(project) {
     private val branchNameField = JBTextField()
     private val createNewBranchCheckBox = JBCheckBox("Create new branch").apply { isSelected = true }
     private val copyIgnoredFilesCheckBox = JBCheckBox("Copy ignored files (e.g. build caches, node_modules)")
+    private val copyAgentContextCheckBox = JBCheckBox("Copy Claude Code context (.claude / session history)")
 
     private var userEditedBranch = false
 
@@ -27,7 +29,7 @@ class CreateWorktreeDialog(project: Project) : DialogWrapper(project) {
         worktreeNameField.addKeyListener(object : KeyAdapter() {
             override fun keyReleased(e: KeyEvent?) {
                 if (!userEditedBranch) {
-                    branchNameField.text = sanitizeBranchName(worktreeNameField.text)
+                    branchNameField.text = BranchNameSanitizer.sanitize(worktreeNameField.text)
                 }
             }
         })
@@ -47,6 +49,7 @@ class CreateWorktreeDialog(project: Project) : DialogWrapper(project) {
             .addLabeledComponent(JBLabel("Branch name:"), branchNameField, 1, false)
             .addComponent(createNewBranchCheckBox, 1)
             .addComponent(copyIgnoredFilesCheckBox, 1)
+            .addComponent(copyAgentContextCheckBox, 1)
             .addComponentFillVertically(JPanel(), 0)
             .panel
     }
@@ -63,14 +66,5 @@ class CreateWorktreeDialog(project: Project) : DialogWrapper(project) {
 
     fun shouldCopyIgnoredFiles(): Boolean = copyIgnoredFilesCheckBox.isSelected
 
-    private fun sanitizeBranchName(input: String): String {
-        return input
-            .trim()
-            .lowercase()
-            .replace(Regex("\\s+"), "-")
-            .replace(Regex("[^a-z0-9._/-]"), "-")
-            .replace(Regex("/+"), "/")
-            .replace(Regex("-+"), "-")
-            .replace(Regex("(^[-./]+|[-./]+$)"), "")
-    }
+    fun shouldCopyAgentContext(): Boolean = copyAgentContextCheckBox.isSelected
 }

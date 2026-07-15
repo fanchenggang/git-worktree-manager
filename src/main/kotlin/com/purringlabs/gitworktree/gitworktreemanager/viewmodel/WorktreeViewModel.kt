@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import com.intellij.openapi.project.Project
 import com.purringlabs.gitworktree.gitworktreemanager.models.AgentContextCopyOption
 import com.purringlabs.gitworktree.gitworktreemanager.models.AgentContextCopyResult
+import com.purringlabs.gitworktree.gitworktreemanager.models.CopyResult
 import com.purringlabs.gitworktree.gitworktreemanager.models.IgnoredFileInfo
 import com.purringlabs.gitworktree.gitworktreemanager.repository.WorktreeRepositoryContract
 import com.purringlabs.gitworktree.gitworktreemanager.services.ClaudeCodeContextService
@@ -196,23 +197,21 @@ class WorktreeViewModel(
         branchName: String,
         createNewBranch: Boolean = true,
         selectedFiles: List<IgnoredFileInfo>,
-        onSuccess: (com.purringlabs.gitworktree.gitworktreemanager.models.CreateWorktreeResult) -> Unit,
+        onSuccess: (com.purringlabs.gitworktree.gitworktreemanager.models.CreateWorktreeResult, CopyResult?) -> Unit,
         onError: (Throwable) -> Unit
     ) {
         coroutineScope.launch {
-            state = state.copy(isCreating = true, error = null)
+            state = state.copy(isCreating = true, error = null, copyResult = null)
             try {
-                // 1. Create worktree (existing logic)
                 repository.createWorktree(worktreeName, branchName, createNewBranch)
                     .onSuccess { result ->
-                        // 2. If files selected, copy them
-                        if (selectedFiles.any { it.selected }) {
-                            coroutineScope.launch {
-                                copyIgnoredFiles(worktreeName, selectedFiles)
-                            }
+                        val copyResult = if (selectedFiles.any { it.selected }) {
+                            copyIgnoredFiles(worktreeName, selectedFiles)
+                        } else {
+                            null
                         }
                         refreshWorktrees()
-                        onSuccess(result)
+                        onSuccess(result, copyResult)
                     }
                     .onFailure { error ->
                         onError(error)
@@ -268,14 +267,14 @@ class WorktreeViewModel(
     private suspend fun copyIgnoredFiles(
         worktreeName: String,
         selectedFiles: List<IgnoredFileInfo>
-    ) {
+    ): CopyResult? {
         // Pick a repository whose root still exists on disk.
         // This must match the selection logic used elsewhere, otherwise we can create a worktree in one repo
         // and copy ignored files relative to a different (or missing) repo.
         val gitRepository = GitRepositoryManager.getInstance(project)
             .repositories
             .firstOrNull { repo -> java.io.File(repo.root.path).exists() }
-            ?: return
+            ?: return null
 
         // Copy relative to the repo root (not project.basePath), so multi-root / moved-project cases behave.
         val sourceRoot = Paths.get(gitRepository.root.path)
@@ -286,6 +285,7 @@ class WorktreeViewModel(
 
         val result = fileOpsService.copyItems(sourceRoot, destRoot, selectedFiles)
         state = state.copy(copyResult = result)
+        return result
     }
 
     /**

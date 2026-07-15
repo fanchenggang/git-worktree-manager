@@ -1,8 +1,5 @@
 package com.purringlabs.gitworktree.gitworktreemanager.models
 
-import kotlinx.serialization.Serializable
-
-@Serializable
 data class StructuredError(
     val errorType: String,
     val errorMessage: String,
