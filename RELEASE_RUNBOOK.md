@@ -1,7 +1,8 @@
 # Release Runbook — Git Worktree Manager (JetBrains Marketplace)
 
 This repo uses GitHub Actions for:
-- PR CI checks (test + verifyPluginStructure)
+- PR / master CI checks (test + verifyPluginStructure + `buildPlugin`)
+- Uploading an installable plugin zip as a GitHub Actions artifact on every CI run
 - Tag-based publishing to JetBrains Marketplace
 
 ## One-time setup
@@ -15,6 +16,19 @@ Required for publishing:
 Required for CI signing (`signPlugin`):
 - `PLUGIN_CERT_CHAIN_B64` (base64 of `chain.crt`)
 - `PLUGIN_PRIVATE_KEY_B64` (base64 of `private.pem`)
+
+## Installable zip after merge to master (no Marketplace publish)
+
+On every push to `master` (including merges) and on every PR, the **CI** workflow:
+
+1. Runs `./gradlew test verifyPluginStructure`
+2. Runs `./gradlew buildPlugin`
+3. Uploads `build/distributions/*.zip` as a workflow artifact
+
+Download it from: GitHub → Actions → pick the green CI run → Artifacts → `git-worktree-manager-<sha>.zip`  
+Then in the IDE: Settings → Plugins → ⚙️ → Install Plugin from Disk…
+
+This zip is unsigned (fine for local install). Marketplace releases still use the tag-based flow below.
 
 ## Standard release flow (recommended)
 
