@@ -241,6 +241,171 @@ class GitWorktreeService(private val project: Project) {
         return File(parentDir, "$projectName-$worktreeName").absolutePath
     }
 
+    /**
+     * Merges [sourceBranch] into the branch currently checked out in the worktree at [targetWorktreePath].
+     * Runs `git merge sourceBranch` in the target worktree directory.
+     */
+    fun mergeBranchInto(
+        repository: GitRepository,
+        sourceBranch: String,
+        targetWorktreePath: String
+    ): Result<Unit> {
+        val git = Git.getInstance()
+        val worktreeRoot = File(targetWorktreePath)
+        if (!worktreeRoot.isDirectory) {
+            return Result.failure(
+                WorktreeOperationException(
+                    message = "Target worktree path is not a directory: $targetWorktreePath",
+                    cause = null
+                )
+            )
+        }
+        val handler = GitLineHandler(project, worktreeRoot, GitCommand.MERGE)
+        handler.addParameters(sourceBranch)
+        return try {
+            val result = git.runCommand(handler)
+            if (result.success()) {
+                Result.success(Unit)
+            } else {
+                Result.failure(
+                    WorktreeOperationException(
+                        message = "Failed to merge '$sourceBranch' into branch at $targetWorktreePath",
+                        gitCommand = handler.printableCommandLine(),
+                        gitExitCode = result.exitCode,
+                        gitErrorOutput = result.errorOutputAsJoinedString
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Result.failure(
+                WorktreeOperationException(
+                    message = "Unexpected error during merge: ${e.message}",
+                    cause = e
+                )
+            )
+        }
+    }
+
+    /**
+     * Pulls [branchName] from origin in the worktree at [worktreePath].
+     */
+    fun pullBranch(
+        repository: GitRepository,
+        worktreePath: String,
+        branchName: String
+    ): Result<Unit> {
+        val git = Git.getInstance()
+        val worktreeRoot = File(worktreePath)
+        if (!worktreeRoot.isDirectory) {
+            return Result.failure(
+                WorktreeOperationException(
+                    message = "Worktree path is not a directory: $worktreePath",
+                    cause = null
+                )
+            )
+        }
+        val handler = GitLineHandler(project, worktreeRoot, GitCommand.PULL)
+        handler.addParameters("origin", branchName)
+        return try {
+            val result = git.runCommand(handler)
+            if (result.success()) {
+                Result.success(Unit)
+            } else {
+                Result.failure(
+                    WorktreeOperationException(
+                        message = "Failed to pull '$branchName' from remote",
+                        gitCommand = handler.printableCommandLine(),
+                        gitExitCode = result.exitCode,
+                        gitErrorOutput = result.errorOutputAsJoinedString
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Result.failure(
+                WorktreeOperationException(
+                    message = "Unexpected error during pull: ${e.message}",
+                    cause = e
+                )
+            )
+        }
+    }
+
+    /**
+     * Pushes [branchName] from the worktree at [worktreePath] to the remote (origin).
+     */
+    fun pushBranch(
+        repository: GitRepository,
+        worktreePath: String,
+        branchName: String
+    ): Result<Unit> {
+        val git = Git.getInstance()
+        val worktreeRoot = File(worktreePath)
+        if (!worktreeRoot.isDirectory) {
+            return Result.failure(
+                WorktreeOperationException(
+                    message = "Worktree path is not a directory: $worktreePath",
+                    cause = null
+                )
+            )
+        }
+        val handler = GitLineHandler(project, worktreeRoot, GitCommand.PUSH)
+        handler.addParameters("origin", branchName)
+        return try {
+            val result = git.runCommand(handler)
+            if (result.success()) {
+                Result.success(Unit)
+            } else {
+                Result.failure(
+                    WorktreeOperationException(
+                        message = "Failed to push '$branchName' to remote",
+                        gitCommand = handler.printableCommandLine(),
+                        gitExitCode = result.exitCode,
+                        gitErrorOutput = result.errorOutputAsJoinedString
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Result.failure(
+                WorktreeOperationException(
+                    message = "Unexpected error during push: ${e.message}",
+                    cause = e
+                )
+            )
+        }
+    }
+
+    /**
+     * Prunes stale worktrees.
+     */
+    fun pruneWorktrees(repository: GitRepository): Result<Unit> {
+        val git = Git.getInstance()
+        val handler = GitLineHandler(project, repository.root, GitCommand.WORKTREE)
+        handler.addParameters("prune")
+        
+        return try {
+            val result = git.runCommand(handler)
+            if (result.success()) {
+                Result.success(Unit)
+            } else {
+                Result.failure(
+                    WorktreeOperationException(
+                        message = "Failed to prune worktrees",
+                        gitCommand = handler.printableCommandLine(),
+                        gitExitCode = result.exitCode,
+                        gitErrorOutput = result.errorOutputAsJoinedString
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Result.failure(
+                WorktreeOperationException(
+                    message = "Unexpected error during prune: ${e.message}",
+                    cause = e
+                )
+            )
+        }
+    }
+
     @VisibleForTesting
     internal fun isMainWorktreePath(worktreePath: String): Boolean {
         // Resolve weirdness like /a/b/./c

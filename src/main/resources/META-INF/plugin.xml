@@ -19,9 +19,13 @@
         <br>
         <b>Features:</b><br>
         <ul>
-            <li>Create new worktrees with automatic branch creation</li>
+            <li>Create new worktrees (new branch or existing local branch)</li>
             <li>View all worktrees in a convenient tool window</li>
             <li>Optionally copy selected ignored files into the new worktree</li>
+            <li>Push worktree branches to remote</li>
+            <li>Copy worktree path/branch/commit to clipboard</li>
+            <li>Open worktree directories in the IDE Terminal (requires the Terminal plugin)</li>
+            <li>Reveal worktree directories in the OS file manager</li>
             <li>Delete worktrees with one click</li>
             <li>Automatically open worktrees in new IDE windows</li>
         </ul>
@@ -32,6 +36,7 @@
     <depends optional="true" config-file="compose.xml">com.intellij.modules.compose</depends>
     <depends optional="true" config-file="kotlin.xml">org.jetbrains.kotlin</depends>
     <depends>Git4Idea</depends>
+    <depends optional="true">org.jetbrains.plugins.terminal</depends>
     <resource-bundle>messages.MyMessageBundle</resource-bundle>
 
     <!-- Extensions defined by the plugin.

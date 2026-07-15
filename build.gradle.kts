@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "com.purringlabs.gitworktree"
-version = "1.1.14"
+version = "1.1.15"
 
 repositories {
     mavenCentral()
@@ -19,7 +19,9 @@ repositories {
 // Read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html
 dependencies {
     intellijPlatform {
-        intellijIdea("2025.2.4")
+//        local(file("C:\\Users\\M\\AppData\\Local\\Programs\\IntelliJ IDEA Ultimate"))  // 或你的实际安装路径
+
+        intellijIdea(version="2025.2.4")
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
 
         // Add plugin dependencies for compilation here:
@@ -28,6 +30,7 @@ dependencies {
 
         bundledPlugin("org.jetbrains.kotlin")
         bundledPlugin("Git4Idea")
+        bundledPlugin("org.jetbrains.plugins.terminal")
     }
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")

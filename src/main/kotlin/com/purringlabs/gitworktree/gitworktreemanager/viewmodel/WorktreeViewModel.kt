@@ -220,4 +220,134 @@ class WorktreeViewModel(
         val result = fileOpsService.copyItems(sourceRoot, destRoot, selectedFiles)
         state = state.copy(copyResult = result)
     }
+
+    /**
+     * Pulls [targetBranch] to latest, then merges [sourceBranch] into it.
+     * @param sourceBranch Branch to merge (e.g. the worktree row the user right-clicked)
+     * @param targetWorktreePath Path of the worktree into whose current branch to merge
+     * @param targetBranch Branch name checked out in the target worktree (pulled first before merge)
+     */
+    fun mergeBranchInto(
+        sourceBranch: String,
+        targetWorktreePath: String,
+        targetBranch: String,
+        onSuccess: () -> Unit,
+        onError: (Throwable) -> Unit
+    ) {
+        coroutineScope.launch {
+            state = state.copy(
+                error = null,
+                mergingSourceBranch = sourceBranch,
+                mergingTargetBranch = targetBranch
+            )
+            try {
+                repository.pullBranch(targetWorktreePath, targetBranch)
+                    .onFailure { onError(it); return@launch }
+                repository.mergeBranchInto(sourceBranch, targetWorktreePath)
+                    .onSuccess {
+                        refreshWorktrees()
+                        onSuccess()
+                    }
+                    .onFailure { onError(it) }
+            } finally {
+                state = state.copy(
+                    mergingSourceBranch = null,
+                    mergingTargetBranch = null
+                )
+            }
+        }
+    }
+
+    /**
+     * Pulls then pushes [branchName] from the worktree at [worktreePath]. Pull runs first to integrate remote changes, then push.
+     */
+    fun pushBranch(
+        worktreePath: String,
+        branchName: String,
+        onSuccess: () -> Unit,
+        onError: (Throwable) -> Unit
+    ) {
+        coroutineScope.launch {
+            state = state.copy(error = null, pushingBranch = branchName)
+            try {
+                repository.pullBranch(worktreePath, branchName)
+                    .onFailure { onError(it); return@launch }
+                repository.pushBranch(worktreePath, branchName)
+                    .onSuccess {
+                        refreshWorktrees()
+                        onSuccess()
+                    }
+                    .onFailure { onError(it) }
+            } finally {
+                state = state.copy(pushingBranch = null)
+            }
+        }
+    }
+
+    fun pushToRemote(
+        worktreePath: String,
+        branchName: String,
+        onSuccess: () -> Unit,
+        onError: (Throwable) -> Unit
+    ) {
+        coroutineScope.launch {
+            state = state.copy(error = null, pushingBranch = branchName)
+            try {
+                repository.pushBranch(worktreePath, branchName)
+                    .onSuccess {
+                        refreshWorktrees()
+                        onSuccess()
+                    }
+                    .onFailure { onError(it) }
+            } finally {
+                state = state.copy(pushingBranch = null)
+            }
+        }
+    }
+
+    /**
+     * Pulls [branchName] from the remote repository.
+     */
+    fun pullBranch(
+        worktreePath: String,
+        branchName: String,
+        onSuccess: () -> Unit,
+        onError: (Throwable) -> Unit
+    ) {
+        coroutineScope.launch {
+            state = state.copy(error = null, pullingBranch = branchName)
+            try {
+                repository.pullBranch(worktreePath, branchName)
+                    .onSuccess {
+                        refreshWorktrees()
+                        onSuccess()
+                    }
+                    .onFailure { onError(it) }
+            } finally {
+                state = state.copy(pullingBranch = null)
+            }
+        }
+    }
+
+    /**
+     * Prunes stale worktrees.
+     */
+    fun pruneWorktrees(
+        onSuccess: () -> Unit,
+        onError: (Throwable) -> Unit
+    ) {
+        coroutineScope.launch {
+            state = state.copy(error = null, isPruning = true)
+            try {
+                repository.pruneWorktrees()
+                    .onSuccess {
+                        refreshWorktrees()
+                        onSuccess()
+                    }
+                    .onFailure { onError(it) }
+            } finally {
+                state = state.copy(isPruning = false)
+            }
+        }
+    }
 }

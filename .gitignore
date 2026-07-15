@@ -54,3 +54,9 @@ build_output.log
 .intellijPlatform/self-update.lock
 .claude/settings.local.json
 .idea/inspectionProfiles/
+.idea/deployment.xml
+.idea/json_assistant_history.xml
+.idea/editorJumperProjectSettings.xml
+.intellijPlatform/
+.trae/
+.gradle-home/
