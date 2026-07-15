@@ -4,8 +4,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.intellij.openapi.project.Project
+import com.purringlabs.gitworktree.gitworktreemanager.models.AgentContextCopyOption
+import com.purringlabs.gitworktree.gitworktreemanager.models.AgentContextCopyResult
 import com.purringlabs.gitworktree.gitworktreemanager.models.IgnoredFileInfo
 import com.purringlabs.gitworktree.gitworktreemanager.repository.WorktreeRepositoryContract
+import com.purringlabs.gitworktree.gitworktreemanager.services.ClaudeCodeContextService
 import com.purringlabs.gitworktree.gitworktreemanager.services.FileOperations
 import com.purringlabs.gitworktree.gitworktreemanager.services.GitWorktreeService
 import com.purringlabs.gitworktree.gitworktreemanager.services.IgnoredFilesScanner
@@ -115,7 +118,33 @@ class WorktreeViewModel(
         coroutineScope.launch {
             state = state.copy(deletingWorktreePath = worktreePath, error = null)
             try {
-                val branchName = state.worktrees.firstOrNull { it.path == worktreePath }?.branch
+                val worktree = state.worktrees.firstOrNull { it.path == worktreePath }
+
+                if (worktree != null) {
+                    if (worktree.isLocked) {
+                        return@launch onError(
+                            IllegalStateException(
+                                buildString {
+                                    append("Cannot delete locked worktree")
+                                    worktree.lockReason?.takeIf { it.isNotBlank() }?.let { append(": ").append(it) }
+                                }
+                            )
+                        )
+                    }
+
+                    if (worktree.isPrunable) {
+                        return@launch onError(
+                            IllegalStateException(
+                                buildString {
+                                    append("Worktree metadata is stale/prunable. Run 'git worktree prune' first")
+                                    worktree.prunableReason?.takeIf { it.isNotBlank() }?.let { append(": ").append(it) }
+                                }
+                            )
+                        )
+                    }
+                }
+
+                val branchName = worktree?.branch
                 repository.deleteWorktree(worktreePath, branchName)
                     .onSuccess { result ->
                         refreshWorktrees()
@@ -184,6 +213,44 @@ class WorktreeViewModel(
                         }
                         refreshWorktrees()
                         onSuccess(result)
+                    }
+                    .onFailure { error ->
+                        onError(error)
+                    }
+            } finally {
+                state = state.copy(isCreating = false)
+            }
+        }
+    }
+
+    /**
+     * Creates a new worktree and optionally copies selected Claude Code context.
+     * @param worktreeName Name for the worktree directory
+     * @param branchName Name of the branch to create/checkout
+     * @param selectedOptions Claude context options to copy
+     * @param onSuccess Callback invoked with the worktree path and copy result on success
+     * @param onError Callback invoked with error message on failure
+     */
+    fun createWorktreeWithAgentContext(
+        worktreeName: String,
+        branchName: String,
+        createNewBranch: Boolean = true,
+        selectedOptions: List<AgentContextCopyOption>,
+        onSuccess: (com.purringlabs.gitworktree.gitworktreemanager.models.CreateWorktreeResult, AgentContextCopyResult?) -> Unit,
+        onError: (Throwable) -> Unit
+    ) {
+        coroutineScope.launch {
+            state = state.copy(isCreating = true, error = null)
+            try {
+                repository.createWorktree(worktreeName, branchName, createNewBranch)
+                    .onSuccess { result ->
+                        val copyResult = if (selectedOptions.any { it.selected }) {
+                            ClaudeCodeContextService.getInstance(project).copySelectedOptions(selectedOptions)
+                        } else {
+                            null
+                        }
+                        refreshWorktrees()
+                        onSuccess(result, copyResult)
                     }
                     .onFailure { error ->
                         onError(error)

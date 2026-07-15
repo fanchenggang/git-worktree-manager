@@ -6,12 +6,20 @@ package com.purringlabs.gitworktree.gitworktreemanager.models
  * @param commit The current commit hash
  * @param branch The branch name (if checked out to a branch)
  * @param isMain Whether this is the main worktree (not a linked worktree)
+ * @param isLocked Whether this worktree is locked
+ * @param isPrunable Whether this worktree has stale metadata
+ * @param lockReason Reason for locking (if available)
+ * @param prunableReason Reason for prunable status (if available)
  */
 data class WorktreeInfo(
     val path: String,
     val commit: String,
     val branch: String?,
-    val isMain: Boolean = false
+    val isMain: Boolean = false,
+    val isLocked: Boolean = false,
+    val isPrunable: Boolean = false,
+    val lockReason: String? = null,
+    val prunableReason: String? = null
 ) {
     companion object {
         /**
@@ -32,6 +40,10 @@ data class WorktreeInfo(
             var currentCommit: String? = null
             var currentBranch: String? = null
             var isMain = false
+            var isLocked = false
+            var isPrunable = false
+            var lockReason: String? = null
+            var prunableReason: String? = null
 
             for (line in lines) {
                 when {
@@ -50,6 +62,20 @@ data class WorktreeInfo(
                     line == "bare" -> {
                         isMain = true
                     }
+                    line == "locked" -> {
+                        isLocked = true
+                    }
+                    line.startsWith("locked ") -> {
+                        isLocked = true
+                        lockReason = line.substring("locked ".length).trim().ifBlank { null }
+                    }
+                    line == "prunable" -> {
+                        isPrunable = true
+                    }
+                    line.startsWith("prunable ") -> {
+                        isPrunable = true
+                        prunableReason = line.substring("prunable ".length).trim().ifBlank { null }
+                    }
                     line.isEmpty() -> {
                         // End of worktree entry
                         if (currentPath != null && currentCommit != null) {
@@ -58,7 +84,11 @@ data class WorktreeInfo(
                                     path = currentPath,
                                     commit = currentCommit,
                                     branch = currentBranch,
-                                    isMain = isMain
+                                    isMain = isMain,
+                                    isLocked = isLocked,
+                                    isPrunable = isPrunable,
+                                    lockReason = lockReason,
+                                    prunableReason = prunableReason
                                 )
                             )
                         }
@@ -66,6 +96,10 @@ data class WorktreeInfo(
                         currentCommit = null
                         currentBranch = null
                         isMain = false
+                        isLocked = false
+                        isPrunable = false
+                        lockReason = null
+                        prunableReason = null
                     }
                 }
             }
@@ -77,7 +111,11 @@ data class WorktreeInfo(
                         path = currentPath,
                         commit = currentCommit,
                         branch = currentBranch,
-                        isMain = isMain
+                        isMain = isMain,
+                        isLocked = isLocked,
+                        isPrunable = isPrunable,
+                        lockReason = lockReason,
+                        prunableReason = prunableReason
                     )
                 )
             }
