@@ -30,9 +30,15 @@ Read more about the benefits: [Increase Productivity with Git Worktrees](https:/
 
 ## Installation
 
-### From CI artifact (after merge to master)
+### From GitHub Release (after merge to master)
 
-After code is merged to `master`, GitHub Actions builds an installable zip:
+After code is merged to `master`, CI publishes an installable zip to **Releases**:
+
+1. Open [Releases](https://github.com/fanchenggang/git-worktree-manager/releases) → **Latest master build** (`master-latest`), or the matching `build-<sha>` release
+2. Download `git-worktree-manager-*.zip`
+3. In the IDE: **Settings → Plugins → ⚙️ → Install Plugin from Disk…**
+
+### From CI artifact
 
 1. Open **Actions** → latest green **CI** run on `master`
 2. Download the **Artifacts** zip (`git-worktree-manager-<sha>`)

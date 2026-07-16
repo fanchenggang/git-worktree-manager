@@ -1,8 +1,9 @@
 # Release Runbook — Git Worktree Manager (JetBrains Marketplace)
 
 This repo uses GitHub Actions for:
-- PR / master CI checks (test + verifyPluginStructure + `buildPlugin`)
+- PR / master CI checks (test + verifyPluginStructure + `buildPlugin` + Plugin Verifier)
 - Uploading an installable plugin zip as a GitHub Actions artifact on every CI run
+- Creating a **GitHub Release** with the install zip on every push to `master`
 - Tag-based publishing to JetBrains Marketplace
 
 ## One-time setup
@@ -17,16 +18,19 @@ Required for CI signing (`signPlugin`):
 - `PLUGIN_CERT_CHAIN_B64` (base64 of `chain.crt`)
 - `PLUGIN_PRIVATE_KEY_B64` (base64 of `private.pem`)
 
-## Installable zip after merge to master (no Marketplace publish)
+## Installable zip after merge to master (GitHub Release)
 
-On every push to `master` (including merges) and on every PR, the **CI** workflow:
+On every push to `master` (including PR merges), the **CI** workflow:
 
-1. Runs `./gradlew test verifyPluginStructure`
+1. Runs `./gradlew test verifyPluginStructure verifyPlugin`
 2. Runs `./gradlew buildPlugin`
 3. Uploads `build/distributions/*.zip` as a workflow artifact
+4. Publishes GitHub Releases:
+   - **Rolling:** [`master-latest`](../../releases/tag/master-latest) — always the newest master build
+   - **Per merge:** `build-<short-sha>` — one release per merge commit
 
-Download it from: GitHub → Actions → pick the green CI run → Artifacts → `git-worktree-manager-<sha>.zip`  
-Then in the IDE: Settings → Plugins → ⚙️ → Install Plugin from Disk…
+Download the `.zip` from the Releases page, then in the IDE:
+**Settings → Plugins → ⚙️ → Install Plugin from Disk…**
 
 This zip is unsigned (fine for local install). Marketplace releases still use the tag-based flow below.
 
